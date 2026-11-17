@@ -296,6 +296,8 @@
 
 ## 六、硬件前提（不满足则对应功能降级或删除）
 
+> 主控已定为 **SF32LB57GYD7N6**（QFN80，58 GPIO，合封 16MB PSRAM + 16MB Flash），逐项核对结果见 [HW-SF32LB57GYD7N6.md](HW-SF32LB57GYD7N6.md)。该芯片**无 WiFi、无充电器、无 MIPI-DSI、无 NPU**，下表三项直接受影响。
+
 | 功能 | 硬件前提 | 影响 |
 | --- | --- | --- |
 | USB Host（F-USB-07） | 5V VBUS 升压、限流开关、VBUS 检测脚、ESD 保护 | 缺一则只能做 Device |
