@@ -16,7 +16,7 @@
 - **Xanadu**：柯勒律治《忽必烈汗》「In Xanadu did Kubla Khan / A stately pleasure-dome decree」—— 灵感降临之地。
 - **无弦音**：《宋书·陶潜传》「畜素琴一张，无弦，每有酒适，辄抚弄以寄其意」—— 不必你把话说完整，它已经懂了。
 
-命名的完整决策过程见 [docs/NAMING.md](docs/NAMING.md)。
+命名的完整决策过程见 [docs/NAMING.md](docs/NAMING.md)。平台功能规格与优先级见 [docs/FEATURES.md](docs/FEATURES.md)。
 
 ## 当前状态
 
