@@ -1,0 +1,4 @@
+[submodule "SiFli-SDK"]
+	path = SiFli-SDK
+	url = https://github.com/loradmyself/SiFli-SDK.git
+	branch = Wander-Xanadu-Yonder
