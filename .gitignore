@@ -1,7 +1,14 @@
 # ---------------------------------------------------------------
 # Wander-Xanadu-Yonder (WXY) · AI 玩伴平台
-# 构建产物
 # ---------------------------------------------------------------
+
+# SiFli-SDK 是子模块（见 .gitmodules），不是主仓源码。
+# 本地工作副本不入库；干净克隆后执行：
+#   git submodule update --init --depth 1
+# 注意：不要在此目录内提交任何东西，也不要把它从 .gitmodules 里删掉。
+SiFli-SDK/
+
+# 构建产物
 build_*/
 output/
 app-packages/

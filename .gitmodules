@@ -1,3 +1,7 @@
+# SiFli-SDK 以子模块形式引入，主仓只保存 commit 指针。
+# 首次克隆后执行：
+#   git submodule update --init --depth 1
+# 升级 SDK：进入 SiFli-SDK 切到目标 commit，再在主仓提交新的指针。
 [submodule "SiFli-SDK"]
 	path = SiFli-SDK
 	url = https://github.com/loradmyself/SiFli-SDK.git
