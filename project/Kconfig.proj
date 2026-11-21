@@ -1,0 +1,25 @@
+# WXY platform project options.
+
+comment "------------WXY platform------------"
+
+config CUSTOM_MEM_MAP
+    bool
+    select custom_mem_map
+    default y
+
+config WXY_COMPUTE_ACPU
+    bool "Build the companion ACPU firmware"
+    depends on SOC_SF32LB57X
+    default y
+    help
+        Registers project/acpu as a child project so heavy compute can be
+        offloaded to the second core. Disable to build a single-core image.
+
+config WXY_TF_DFU
+    bool "Build the RAM-loaded TF-card DFU loader"
+    depends on SOC_SF32LB57X
+    default n
+    help
+        The loader executes from PSRAM and writes flash, so ptab.json must
+        define DFU_LOADER_START_ADDR/DFU_LOADER_SIZE and
+        DFU_EXEC_START_ADDR/DFU_EXEC_SIZE before this can be enabled.

@@ -1,0 +1,20 @@
+import os
+from building import *
+
+cwd = GetCurrentDir()
+
+src = ['main.c']
+
+# platform/include 是唯一对外 ABI 目录，src 与 apps 都从这里取头文件。
+CPPPATH = [cwd, os.path.join(cwd, '../platform/include')]
+
+objs = DefineGroup('src', src, depend=[''], CPPPATH=CPPPATH)
+
+# 自动挂载子目录：新增 src/services、src/ui 时只放一个 SConscript 即可，
+# 不需要回来改这里。
+for d in sorted(os.listdir(cwd)):
+    path = os.path.join(cwd, d)
+    if os.path.isfile(os.path.join(path, 'SConscript')):
+        objs = objs + SConscript(os.path.join(d, 'SConscript'), variant_dir=d, duplicate=0)
+
+Return('objs')

@@ -1,0 +1,8 @@
+config CUSTOM_MEM_MAP
+    bool
+    select custom_mem_map
+    default y
+
+config WXY_TF_DFU
+    bool
+    default y

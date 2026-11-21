@@ -1,0 +1,4 @@
+TARGET_NAME = 'dfu'
+CORE = 'HCPU'
+CHIP = 'SF32LB57X'
+LINK_SCRIPT = 'link.lds'

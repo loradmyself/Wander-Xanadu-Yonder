@@ -1,0 +1,26 @@
+import os
+
+import building
+from building import DefineGroup, GetCurrentDir, GetCurrentEnv
+
+Import('SIFLI_SDK')
+
+cwd = GetCurrentDir()
+env = GetCurrentEnv()
+# The bare-metal C library uses byte stores, including for the LCDC palette.
+env.Append(LINKFLAGS=['-Wl,--wrap=memcpy'])
+objects = SConscript(os.path.join(SIFLI_SDK, 'SConscript'), variant_dir='sifli_sdk', duplicate=0)
+
+# The second-stage bootloader has already initialized PSRAM. Start at the
+# DFU vector table without the normal SDK cold-start sequence.
+def dfu_source(node):
+    return node.name.lower() != 'startup_bf0_hcpu.s'
+
+objects = [source for source in objects if dfu_source(source)]
+for group in building.Projects:
+    group['src'] = [source for source in group['src'] if dfu_source(source)]
+
+dfu_sources = Glob('*.c') + [File('startup.S')]
+objects += DefineGroup('WXY_TF_DFU', dfu_sources, depend=[],
+                       CPPPATH=[cwd, env['BUILD_DIR_FULL_PATH']])
+Return('objects')

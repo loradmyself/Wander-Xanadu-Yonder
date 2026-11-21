@@ -1,0 +1,14 @@
+{
+  "abi": 1,
+  "id": "hello",
+  "version": 1,
+  "data_version": 1,
+  "name": "你好",
+  "default_locale": "zh_cn",
+  "localized_names": {
+    "zh_cn": "你好",
+    "en_us": "Hello"
+  },
+  "background": false,
+  "tools": []
+}
