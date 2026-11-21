@@ -34,18 +34,20 @@ env.PrependENVPath('PATH', rtconfig.EXEC_PATH)
 objs = PrepareBuilding(env)
 
 # Child projects share this board's partition table, so they must be registered
-# after PrepareBuilding() resolved PARTITION_TABLE and before the main link.
+# after PrepareBuilding() resolved it and before the main link.
+shared_partition = {'PARTITION_TABLE': env['PARTITION_TABLE']} if env.get('PARTITION_TABLE') else None
+
 # ACPU: companion core for heavy compute offload.
 if GetDepend('WXY_COMPUTE_ACPU'):
     AddChildProj('acpu', os.path.abspath('acpu'), False, core='ACPU',
-                 shared_option={'PARTITION_TABLE': env['PARTITION_TABLE']})
+                 shared_option=shared_partition)
 
 # TF-card DFU loader. Disabled by default: it executes from PSRAM and needs
 # DFU_LOADER_* / DFU_EXEC_* regions, which this board's ptab.json does not
 # define yet. See docs/BUILD.md.
 if GetDepend('WXY_TF_DFU'):
     AddChildProj('dfu', os.path.abspath('dfu'), False, core='HCPU',
-                 shared_option={'PARTITION_TABLE': env['PARTITION_TABLE']})
+                 shared_option=shared_partition)
 
 # Build application.
 DoBuilding(TARGET, objs)
