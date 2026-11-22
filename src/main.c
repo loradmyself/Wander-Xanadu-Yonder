@@ -56,6 +56,51 @@ void lvgl_test(void* parameter)
 
 }
 
+#if 1
+/**
+            "offset": "0x008E0000",
+                "max_size": "0x00400000",
+                "name": "fs_root",
+                "tags": [
+                    "FS_REGION"
+                ]
+ */
+#include "drv_flash.h"
+#include "dfs_file.h"
+
+#define FS_ROOT_NAME "WXY_ROOT"
+#define FS_REGION_START_ADDR 0x12000000
+#define FS_REGION_START_ADDR_OFFSET 0x00008E00
+#define FS_REGION_SIZE 0x00400000
+
+int mnt_init(void)
+{
+    //TODO: how to get base address
+    register_mtd_device(FS_REGION_START_ADDR+FS_REGION_START_ADDR_OFFSET,FS_REGION_SIZE , FS_ROOT_NAME);
+    if (dfs_mount(FS_ROOT_NAME, "/", "elm", 0, 0) == 0) // fs exist
+    {
+        rt_kprintf("mount fs on flash to root success\n");
+    }
+    else
+    {
+        // auto mkfs, remove it if you want to mkfs manual
+        rt_kprintf("mount fs on flash to root fail\n");
+        if (dfs_mkfs("elm",FS_ROOT_NAME ) == 0)
+        {
+            rt_kprintf("make elm fs on flash sucess, mount again\n");
+            if (dfs_mount(FS_ROOT_NAME, "/", "elm", 0, 0) == 0)
+                rt_kprintf("mount fs on flash success\n");
+            else
+                rt_kprintf("mount to fs on flash fail\n");
+        }
+        else
+            rt_kprintf("dfs_mkfs elm flash fail\n");
+    }
+    return RT_EOK;
+}
+INIT_ENV_EXPORT(mnt_init);
+#endif
+
 
 
 int main(void)
