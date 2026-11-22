@@ -10,7 +10,7 @@
 
 #include <rtthread.h>
 #include "xyz/xyz_version.h"
-
+#include "littlevgl2rtt.h"
 #define LOG_TAG "WXY"
 #define LOG_LVL LOG_LVL_INFO
 #include <ulog.h>
@@ -33,11 +33,44 @@ static void wxy_banner(void)
     rt_kprintf("========================================\n");
 }
 
+
+
+void lvgl_test(void* parameter)
+{
+    rt_err_t ret = RT_EOK;
+    rt_uint32_t ms;
+
+    /* init littlevGL */
+    ret = littlevgl2rtt_init("lcd");
+    if (ret != RT_EOK)
+    {
+        LOG_E("init failed, tick=%d", (int)rt_tick_get());
+        return;
+    }
+    /* 运行 lvgl 任务 */
+    while (1)
+    {
+        ms = lv_task_handler();
+        rt_thread_mdelay(ms);
+    }
+
+}
+
+
+
 int main(void)
 {
+    rt_device_t p_device;
+    rt_thread_t tid;
+
     wxy_banner();
     LOG_I("boot ok, tick=%d", (int)rt_tick_get());
-
+    p_device = rt_device_find("lcd");
+    if (p_device)
+    {
+        tid = rt_thread_create("lcd_refr", lvgl_test, p_device, 1024, 30, 10);
+        rt_thread_startup(tid);
+    }
     /* 心跳：证明调度器在跑，同时给串口一个可观测的存活信号。 */
     for (;;)
     {
