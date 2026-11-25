@@ -35,6 +35,28 @@ static void wxy_banner(void)
 
 
 
+/* LVGL 演示 UI：200x200 绿色按钮，屏幕居中，按钮上写 HELLO。
+ * 必须在 littlevgl2rtt_init() 之后、且只在 LVGL 任务线程里创建：
+ * LVGL 对象树不是线程安全的，不要在 main() 里直接调。 */
+static void wxy_lvgl_demo_ui(void)
+{
+    lv_obj_t *btn = lv_btn_create(lv_scr_act());
+    lv_obj_set_size(btn, 200, 200);
+    lv_obj_center(btn);
+
+    /* 绿色按钮：默认亮绿，按下深绿；去掉边框和阴影避免遮挡纯色 */
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x00E676), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x00C853), LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(btn, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN);
+
+    lv_obj_t *label = lv_label_create(btn);
+    lv_label_set_text(label, "HELLO");
+    lv_obj_center(label);
+    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+}
+
 void lvgl_test(void* parameter)
 {
     rt_err_t ret = RT_EOK;
@@ -47,6 +69,7 @@ void lvgl_test(void* parameter)
         LOG_E("init failed, tick=%d", (int)rt_tick_get());
         return;
     }
+    wxy_lvgl_demo_ui();
     /* 运行 lvgl 任务 */
     while (1)
     {
@@ -113,7 +136,7 @@ int main(void)
     p_device = rt_device_find("lcd");
     if (p_device)
     {
-        tid = rt_thread_create("lcd_refr", lvgl_test, p_device, 1024, 30, 10);
+        tid = rt_thread_create("lcd_refr", lvgl_test, p_device, 8*1024, 30, 10);
         rt_thread_startup(tid);
     }
     /* 心跳：证明调度器在跑，同时给串口一个可观测的存活信号。 */
