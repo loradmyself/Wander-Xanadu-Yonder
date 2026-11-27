@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WXY UI 逻辑原型 v0.4 · 换碟唱机</title>
+<style>
+:root {
+  --t-enter: 560;      /* 新碟落位 / 泛起 ms */
+  --t-exit: 340;       /* 旧碟退出 / 沉入 ms */
+  --t-arm: 620;        /* 唱针行程 ms */
+  --t-swap: 520;       /* 换碟总时长 ms */
+  --fz-blur: 9;
+  --t-spin: 14;
+  --t-ghost: 1200;
+  --press-scale: .96;
+  --ease-soft: cubic-bezier(.22,.61,.36,1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: #101114; color: #E8E8EA; font-size: 13px; line-height: 1.6;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.app { max-width: 1320px; margin: 0 auto; padding: 20px 24px 60px; }
+header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+header h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: .3px; }
+header .sub { color: #8A8A92; font-size: 12px; }
+header .badge { margin-left: auto; color: #C7C7CE; font-size: 11px; border: 1px solid #35363D; border-radius: 999px; padding: 3px 10px; }
+.layout { display: grid; grid-template-columns: minmax(0,1fr) 372px; gap: 20px; align-items: start; }
+.stage { background: #18191D; border: 1px solid #2E2F35; border-radius: 16px; padding: 16px; }
+.fit-box { width: 100%; overflow: hidden; }
+.screen-shell { width: 1024px; height: 600px; transform-origin: top left; }
+
+/* ===== 换碟唱机 ===== */
+.screen {
+  width: 1024px; height: 600px; border-radius: 18px; overflow: hidden; position: relative;
+  color: var(--text); background: var(--bg);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 20px 50px rgba(0,0,0,.5);
+  transition: background 400ms ease, color 400ms ease;
+  --disc-hue: #E0B877;
+}
+.screen[data-theme="ink"]   { --bg:#141513; --panel:#20211E; --panel2:#2A2B26; --text:#EFEDE3; --dim:#9B9C8E; --accent:#E0B877; --accent2:#8FC7AA; --line:#3A3B34; --hole:#141513; }
+.screen[data-theme="pixel"] { --bg:#13121B; --panel:#1F1D2E; --panel2:#29263E; --text:#F0EEF6; --dim:#9E98B8; --accent:#9BD465; --accent2:#EFAF34; --line:#3C3856; --hole:#13121B; }
+.screen[data-theme="cyber"] { --bg:#101114; --panel:#1C1D22; --panel2:#26272E; --text:#F3F3F6; --dim:#9798A1; --accent:#F6C86A; --accent2:#E2758F; --line:#3A3B43; --hole:#101114; }
+
+.disc-world { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(circle at 40% 52%, var(--panel2), var(--bg) 66%); }
+
+/* 碟片锚点：负责整碟旋入/旋出的换碟动作；内部 vinyl 只负责自转 */
+.disc-anchor {
+  position: absolute; left: 118px; top: 44px; width: 560px; height: 560px;
+  transition: transform var(--t-swap) var(--ease-soft), opacity var(--t-swap) var(--ease-soft);
+  will-change: transform, opacity;
+}
+.disc-anchor.out { transform: translateX(126px) rotate(17deg) scale(.8); opacity: 0; transition-duration: var(--t-exit); }
+.disc-anchor.in  { transform: translateX(78px) rotate(-13deg) scale(.86); opacity: 0; transition: none; }
+.disc-anchor.no-anim { transition: none !important; }
+.vinyl {
+  position: absolute; inset: 0; border-radius: 50%;
+  background:
+    repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,.035) 0 2px, rgba(0,0,0,.14) 2px 4px, transparent 4px 8px),
+    repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,.02) 0 1px, transparent 1px 12px),
+    conic-gradient(from 0deg, color-mix(in srgb, var(--disc-hue) 11%, transparent), rgba(255,255,255,.03) 12%, transparent 25%, color-mix(in srgb, var(--disc-hue) 7%, transparent) 50%, transparent 62%, rgba(255,255,255,.025) 78%, color-mix(in srgb, var(--disc-hue) 10%, transparent)),
+    var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line), inset 0 0 90px rgba(0,0,0,.6), 0 26px 60px rgba(0,0,0,.42);
+  animation: spin var(--t-spin) linear infinite;
+}
+.disc-world.paused .vinyl { animation-play-state: paused; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.vinyl::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 30deg, transparent 0 16%, rgba(255,255,255,.07) 20%, transparent 26% 60%, rgba(255,255,255,.05) 65%, transparent 71%); mix-blend-mode: screen; }
+.vinyl-label {
+  position: absolute; left: 50%; top: 50%; width: 152px; height: 152px; margin: -76px 0 0 -76px; border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--disc-hue) 88%, #000) 0 62%, color-mix(in srgb, var(--disc-hue) 58%, #000) 100%);
+  box-shadow: inset 0 0 0 6px rgba(0,0,0,.22), inset 0 0 22px rgba(0,0,0,.35), 0 0 0 1px var(--line);
+  display: grid; place-items: center; text-align: center; color: #1B1A16;
+  transition: background 400ms ease;
+}
+.vinyl-label .lt { font-size: 8px; letter-spacing: 1.6px; opacity: .72; font-family: Consolas, monospace; }
+.vinyl-label .ln { font-size: 18px; font-weight: 800; line-height: 1.15; max-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vinyl-label .icon { width: 20px; height: 20px; }
+.vinyl-label .lstack { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.vinyl-hole { position: absolute; left: 50%; top: 50%; width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 3px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.25); z-index: 3; }
+/* 读取光点：随唱片自转，随播放进度改变角度 */
+.read-dot { position: absolute; left: 50%; top: 50%; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: var(--disc-hue); box-shadow: 0 0 12px var(--disc-hue); opacity: 0; z-index: 2; transform: rotate(var(--read-a,0deg)) translateX(198px); }
+.disc-world.music-on .read-dot { opacity: .95; animation: readPulse 920ms ease-in-out infinite; }
+@keyframes readPulse { 0%,100%{ transform:rotate(var(--read-a,0deg)) translateX(198px) scale(1); box-shadow:0 0 10px var(--disc-hue);} 50%{ transform:rotate(var(--read-a,0deg)) translateX(198px) scale(1.7); box-shadow:0 0 20px var(--disc-hue);} }
+.disc-world.music-on .vinyl-label { animation: labelBeat 1.04s ease-in-out infinite; }
+@keyframes labelBeat { 0%,100%{ transform:scale(1);} 12%{ transform:scale(1.026);} 26%{ transform:scale(1);} }
+
+/* 轨道刻度 */
+.orbit { position: absolute; left: 118px; top: 44px; width: 560px; height: 560px; pointer-events: none; }
+.orbit-dot { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 84%, transparent); display: grid; place-items: center; color: var(--dim); pointer-events: auto; cursor: pointer; transition: transform 260ms var(--ease-soft), color 260ms, border-color 260ms, background 260ms; }
+.orbit-dot .icon { width: 14px; height: 14px; }
+.orbit-dot.on { color: var(--disc-hue); border-color: var(--disc-hue); background: var(--panel2); transform: scale(1.22); box-shadow: 0 0 0 5px color-mix(in srgb, var(--disc-hue) 14%, transparent); }
+.orbit-dot:hover { border-color: var(--accent2); }
+
+/* 唱臂：--arm 决定落点，--arm-lift 抬起，--arm-x 深入时缩短 */
+.tonearm { position: absolute; right: 74px; top: 66px; width: 470px; height: 16px; transform-origin: 100% 50%; transform: rotate(calc(var(--arm,0deg) + var(--arm-lift,0deg))) scaleX(var(--arm-x,1)); transition: transform var(--t-arm) var(--ease-soft); z-index: 8; pointer-events: none; }
+.tonearm .pivot { position: absolute; right: -16px; top: -13px; width: 42px; height: 42px; border-radius: 50%; background: radial-gradient(circle at 38% 34%, #D6D7DC, #8C8D93 58%, #6E6F75); box-shadow: 0 6px 16px rgba(0,0,0,.5), inset 0 0 0 3px rgba(255,255,255,.14); }
+.tonearm .pivot::after { content: ""; position: absolute; inset: 13px; border-radius: 50%; background: var(--panel2); box-shadow: inset 0 0 0 1px var(--line); }
+.tonearm .armbar { position: absolute; right: 8px; top: 5px; width: 440px; height: 6px; border-radius: 3px; background: linear-gradient(#E2E3E7, #9A9BA1 60%, #77787E); box-shadow: 0 3px 7px rgba(0,0,0,.45); }
+.tonearm .head { position: absolute; left: -6px; top: -6px; width: 34px; height: 26px; border-radius: 5px; background: var(--panel2); border: 1px solid var(--line); box-shadow: 0 5px 12px rgba(0,0,0,.5); transform: rotate(-14deg); }
+.tonearm .head::after { content: ""; position: absolute; left: 5px; bottom: -7px; width: 2px; height: 9px; background: var(--disc-hue); box-shadow: 0 0 7px var(--disc-hue); }
+.disc-world.reading .tonearm .head::after { animation: cue 700ms ease-in-out infinite; }
+@keyframes cue { 0%,100%{ box-shadow:0 0 5px var(--disc-hue);} 50%{ box-shadow:0 0 14px var(--disc-hue);} }
+
+/* ===== 角落小 CD：显示当前-loaded 碟，点开是碟仓 ===== */
+.mini-rack { position: absolute; left: 18px; top: 40px; z-index: 33; display: flex; align-items: center; gap: 9px; padding: 6px 12px 6px 6px; border-radius: 15px; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 92%, transparent); cursor: pointer; box-shadow: 0 8px 22px rgba(0,0,0,.4); transition: border-color 200ms, transform 110ms var(--ease-soft); }
+.mini-rack:hover { border-color: var(--disc-hue); }
+.mini-rack:active { transform: scale(.97); }
+.mini-cd { width: 56px; height: 56px; border-radius: 50%; flex: 0 0 56px; position: relative; display: grid; place-items: center; background: repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,.09) 0 2px, rgba(0,0,0,.2) 2px 3px, transparent 3px 6px), var(--bg); border: 1px solid var(--line); animation: spin 4s linear infinite; box-shadow: 0 3px 10px rgba(0,0,0,.5); }
+.disc-world.paused .mini-cd { animation-play-state: paused; }
+.mini-cd i { width: 24px; height: 24px; border-radius: 50%; background: var(--disc-hue); color: #18181A; display: grid; place-items: center; box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--disc-hue) 45%, #000); transition: background 300ms; }
+.mini-cd i .icon { width: 13px; height: 13px; stroke-width: 2; }
+.mini-cd::after { content: ""; position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--hole); box-shadow: inset 0 0 0 1px rgba(255,255,255,.3); }
+.mini-rack-tx { display: flex; flex-direction: column; line-height: 1.3; }
+.mini-rack-tx .cap { font-size: 8px; letter-spacing: 1.3px; color: var(--dim); }
+.mini-rack-tx b { font-size: 13px; font-weight: 600; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-rack-tx .num { font-size: 9px; color: var(--disc-hue); font-family: Consolas, monospace; }
+.tray { position: absolute; left: 18px; top: 112px; width: 348px; z-index: 34; display: none; padding: 12px 13px 13px; border-radius: 14px; background: color-mix(in srgb, var(--panel) 96%, transparent); border: 1px solid color-mix(in srgb, var(--disc-hue) 55%, transparent); box-shadow: 0 20px 48px rgba(0,0,0,.58); }
+.tray.show { display: block; animation: trayIn 240ms var(--ease-soft); }
+@keyframes trayIn { from{ opacity:0; transform:translateY(-9px) scale(.97);} to{ opacity:1; transform:none;} }
+.tray-head { display: flex; justify-content: space-between; align-items: center; font-size: 9px; letter-spacing: 1.1px; color: var(--dim); margin-bottom: 10px; }
+.tray-head b { color: var(--disc-hue); font-weight: 600; }
+.tray-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+.tray-disc { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 8px 2px 6px; border-radius: 9px; background: var(--panel2); border: 1px solid var(--line); cursor: pointer; font-size: 9px; color: var(--dim); transition: transform 110ms var(--ease-soft), border-color 200ms, color 200ms; }
+.tray-disc:active { transform: scale(.94); }
+.tray-disc.on { border-color: var(--dc); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dc) 40%, transparent); }
+.tray-cd { width: 38px; height: 38px; border-radius: 50%; background: repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,.1) 0 2px, transparent 2px 5px), var(--bg); display: grid; place-items: center; position: relative; }
+.tray-cd i { width: 16px; height: 16px; border-radius: 50%; background: var(--dc); color: #18181A; display: grid; place-items: center; }
+.tray-cd i .icon { width: 10px; height: 10px; stroke-width: 2.2; }
+.tray-cd::after { content: ""; position: absolute; width: 3px; height: 3px; border-radius: 50%; background: var(--hole); }
+
+/* 呼吸涟漪 */
+.ripples { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.ripples i { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; border: 1px solid var(--disc-hue); opacity: 0; }
+.disc-world.breathing .ripples i { animation: ripple 1500ms ease-out infinite; }
+.disc-world.breathing .ripples i:nth-child(2){ animation-delay: 380ms; }
+.disc-world.breathing .ripples i:nth-child(3){ animation-delay: 760ms; }
+@keyframes ripple { 0%{ transform:scale(1); opacity:.6;} 100%{ transform:scale(20); opacity:0;} }
+
+/* ===== 读碟窗 ===== */
+.focus-well { position: absolute; left: 168px; top: 118px; width: 452px; height: 364px; z-index: 5; }
+.well-glow { position: absolute; inset: -26px; border-radius: 50%; background: radial-gradient(ellipse at 50% 48%, color-mix(in srgb, var(--disc-hue) 12%, transparent), transparent 68%); pointer-events: none; }
+.content-stack { position: absolute; inset: 0; }
+.scene { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; opacity: 0; filter: blur(calc(var(--fz-blur) * 1px)) brightness(.55); transform: scale(.955) translateY(9px); transition: opacity var(--t-exit) var(--ease-soft), filter var(--t-exit) var(--ease-soft), transform var(--t-exit) var(--ease-soft); pointer-events: none; }
+.scene.active { opacity: 1; filter: blur(0) brightness(1); transform: scale(1) translateY(0); transition-duration: var(--t-enter); pointer-events: auto; }
+.scene.receded { opacity: .3; filter: blur(calc(var(--fz-blur) * .7px)) brightness(.5); transform: scale(.9) translateY(-12px); pointer-events: none; }
+.scene-head { display: flex; align-items: center; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid color-mix(in srgb, var(--line) 75%, transparent); }
+.scene-head .tk { font-size: 9px; letter-spacing: 1.5px; color: var(--disc-hue); font-variant-numeric: tabular-nums; }
+.scene-head .icon { color: var(--disc-hue); width: 17px; height: 17px; }
+.scene-head b { font-size: 15px; font-weight: 600; }
+.scene-head .sub2 { margin-left: auto; font-size: 9px; color: var(--dim); }
+.dim { font-size: 10px; color: var(--dim); }
+.msg { max-width: 94%; padding: 8px 12px; border-radius: 7px; font-size: 12px; background: color-mix(in srgb, var(--panel) 82%, transparent); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: transparent; }
+.card { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; background: color-mix(in srgb, var(--panel2) 84%, transparent); border: 1px solid color-mix(in srgb, var(--line) 80%, transparent); cursor: pointer; user-select: none; }
+.card .ci { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); flex: 0 0 auto; }
+.card .ct { font-size: 12px; font-weight: 600; }
+.card .cs { font-size: 10px; color: var(--dim); }
+.flex1 { flex: 1; }
+.tile-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tile { aspect-ratio: 1.3; border-radius: 8px; background: color-mix(in srgb, var(--panel2) 80%, transparent); border: 1px solid color-mix(in srgb, var(--line) 78%, transparent); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 10px; color: var(--dim); cursor: pointer; }
+.tile .icon { color: var(--disc-hue); }
+.set-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; background: color-mix(in srgb, var(--panel2) 84%, transparent); border: 1px solid color-mix(in srgb, var(--line) 78%, transparent); font-size: 12px; cursor: pointer; }
+.set-row .icon { color: var(--disc-hue); }
+.tap { transition: transform 110ms var(--ease-soft), background-color 110ms ease; }
+.tap:active { transform: scale(var(--press-scale)); background-color: color-mix(in srgb, var(--accent) 22%, transparent); transition-duration: 0ms; }
+
+/* 子层 */
+.scene.inner { z-index: 2; }
+/* 子层衬底：边缘完全羽化的淡雾，唱片纹路透出，不再是一块黑椭圆 */
+.inner-disc { position: absolute; inset: -18px; background: radial-gradient(ellipse at 50% 48%, color-mix(in srgb, var(--bg) 46%, transparent) 0 22%, color-mix(in srgb, var(--bg) 20%, transparent) 50%, transparent 76%); }
+.inner-body { position: relative; padding: 16px 26px; height: 100%; display: flex; flex-direction: column; gap: 9px; text-shadow: 0 1px 3px rgba(0,0,0,.85); }
+.crumb { font-size: 9px; color: var(--dim); letter-spacing: .4px; }
+.crumb b { color: var(--accent2); font-weight: 600; }
+
+/* 应用视图 */
+.app-view { position: absolute; inset: 0; z-index: 8; display: none; flex-direction: column; gap: 9px; opacity: 0; filter: blur(calc(var(--fz-blur) * 1px)); transform: scale(.95) translateY(10px); transition: opacity var(--t-enter) var(--ease-soft), filter var(--t-enter) var(--ease-soft), transform var(--t-enter) var(--ease-soft); text-shadow: 0 1px 3px rgba(0,0,0,.85); }
+.app-view.show { display: flex; }
+.app-view.active { opacity: 1; filter: blur(0); transform: scale(1) translateY(0); }
+/* 无边界淡雾：只压中心一小块保证歌词可读，唱片纹路继续透出 */
+.app-view::before { content: ""; position: absolute; inset: -26px -18px; z-index: -1; background: radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--bg) 44%, transparent) 0 24%, color-mix(in srgb, var(--bg) 18%, transparent) 52%, transparent 78%); }
+/* 子层或应用浮起时压暗中心标签，避免亮色碟心干扰文字（唱片纹路保留） */
+.disc-world.app-on .vinyl-label, .disc-world.app-on .vinyl-hole,
+.disc-world.inner-on .vinyl-label, .disc-world.inner-on .vinyl-hole { opacity: .12; transition: opacity var(--t-exit) ease; }
+.app-bar { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.app-bar .back { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; cursor: pointer; color: var(--disc-hue); background: color-mix(in srgb, var(--panel2) 88%, transparent); }
+.app-bar .back .icon { width: 15px; height: 15px; }
+.app-bar b { font-size: 13px; font-weight: 600; }
+.app-bar .tag { margin-left: auto; font-size: 9px; color: var(--dim); letter-spacing: .5px; }
+.app-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 9px; }
+.tbtn.sm { width: auto; height: 30px; padding: 0 14px; border-radius: 8px; font-size: 11px; }
+
+/* 音乐 */
+.music-wrap { display: flex; gap: 14px; flex: 1; min-height: 0; }
+.music-cover { width: 172px; flex: 0 0 172px; border-radius: 12px; background: linear-gradient(145deg, color-mix(in srgb, var(--disc-hue) 32%, var(--panel2)), var(--panel2)); position: relative; overflow: hidden; display: grid; place-items: center; box-shadow: inset 0 0 0 1px var(--line), 0 10px 24px rgba(0,0,0,.4); }
+.music-cover .mini-disc { width: 112px; height: 112px; border-radius: 50%; background: repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,.09) 0 2px, transparent 2px 5px), var(--bg); border: 1px solid var(--line); display: grid; place-items: center; animation: spin 6s linear infinite; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+.music-cover .mini-disc i { width: 36px; height: 36px; border-radius: 50%; background: var(--disc-hue); box-shadow: inset 0 0 0 8px color-mix(in srgb, var(--disc-hue) 40%, #000); }
+.music-view.paused .mini-disc { animation-play-state: paused; }
+.music-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.music-title { font-size: 15px; font-weight: 600; }
+.music-artist { font-size: 10px; color: var(--dim); }
+.lyric { font-size: 10px; color: var(--dim); line-height: 1.9; }
+.lyric .lyc { transition: color 260ms, text-shadow 260ms; }
+.lyric .lyc.on { color: var(--disc-hue); text-shadow: 0 0 10px color-mix(in srgb, var(--disc-hue) 45%, transparent); font-weight: 600; }
+.music-prog { margin-top: auto; }
+.music-prog .bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.music-prog .bar i { display: block; height: 100%; width: 30%; background: var(--disc-hue); transition: width 300ms linear; }
+.music-time { display: flex; justify-content: space-between; font-size: 9px; color: var(--dim); font-family: Consolas, monospace; margin-top: 4px; }
+.music-ctrl { display: flex; align-items: center; justify-content: center; gap: 14px; flex: 0 0 auto; }
+
+/* 计时器 */
+.timer-face { flex: 1; display: grid; place-items: center; position: relative; }
+.timer-ring { width: 188px; height: 188px; border-radius: 50%; background: conic-gradient(var(--disc-hue) var(--deg, 0deg), var(--line) 0); display: grid; place-items: center; box-shadow: 0 8px 26px rgba(0,0,0,.4); }
+.timer-ring::before { content: ""; position: absolute; width: 168px; height: 168px; border-radius: 50%; background: var(--bg); }
+.timer-val { position: relative; font-family: Consolas, monospace; font-size: 32px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.timer-ctrl { display: flex; gap: 8px; justify-content: center; flex: 0 0 auto; }
+
+/* 天气 */
+.weather-now { display: flex; align-items: center; gap: 14px; }
+.weather-temp { font-size: 52px; font-weight: 300; line-height: 1; color: var(--text); }
+.weather-temp sup { font-size: 18px; vertical-align: top; }
+.weather-now .icon { width: 44px; height: 44px; color: var(--disc-hue); }
+.weather-desc { font-size: 11px; color: var(--dim); margin-left: auto; text-align: right; line-height: 1.6; }
+.weather-hours { display: flex; gap: 6px; }
+.weather-hour { flex: 1; text-align: center; padding: 8px 2px; border-radius: 8px; background: color-mix(in srgb, var(--panel2) 86%, transparent); font-size: 9px; color: var(--dim); display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.weather-hour .icon { width: 16px; height: 16px; color: var(--disc-hue); }
+.weather-hour b { color: var(--text); font-size: 11px; }
+.weather-days { display: flex; flex-direction: column; gap: 5px; }
+.weather-day { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 7px; background: color-mix(in srgb, var(--panel2) 80%, transparent); font-size: 10px; }
+.weather-day .icon { width: 15px; height: 15px; color: var(--accent2); }
+.weather-day .hi { margin-left: auto; color: var(--text); }
+.weather-day .lo { color: var(--dim); }
+
+/* 笔记 */
+.note-list { display: flex; flex-direction: column; gap: 6px; overflow: auto; flex: 1; min-height: 0; }
+.note-item { padding: 9px 11px; border-radius: 8px; background: color-mix(in srgb, var(--panel2) 86%, transparent); border: 1px solid var(--line); cursor: pointer; }
+.note-item.sel { border-color: var(--disc-hue); background: color-mix(in srgb, var(--disc-hue) 12%, var(--panel2)); }
+.note-item b { font-size: 11px; }
+.note-item .nt { float: right; font-size: 9px; color: var(--dim); }
+.note-item p { margin: 3px 0 0; font-size: 10px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-edit { width: 100%; min-height: 62px; resize: none; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--text); font: 11px/1.6 inherit; padding: 8px 10px; }
+
+/* 陪伴 */
+.comp-face { flex: 1; display: grid; place-items: center; }
+.comp-face .icon { width: 116px; height: 116px; color: var(--disc-hue); animation: floaty 3s ease-in-out infinite; }
+@keyframes floaty { 0%,100%{ transform: translateY(0);} 50%{ transform: translateY(-9px);} }
+.comp-mood { text-align: center; font-size: 12px; color: var(--text); }
+.comp-mood span { color: var(--dim); font-size: 10px; }
+.comp-actions { display: flex; gap: 8px; justify-content: center; flex: 0 0 auto; }
+
+/* 详情 / 语音 / 读纹 */
+.detail { position: absolute; left: 196px; top: 148px; width: 400px; height: 290px; z-index: 20; display: none; flex-direction: column; gap: 9px; padding: 18px 20px; border-radius: 16px; background: radial-gradient(ellipse at 50% 30%, color-mix(in srgb, var(--panel2) 98%, transparent), color-mix(in srgb, var(--panel) 96%, transparent)); border: 1px solid color-mix(in srgb, var(--disc-hue) 55%, transparent); box-shadow: 0 26px 60px rgba(0,0,0,.6), 0 0 0 6px color-mix(in srgb, var(--disc-hue) 7%, transparent); }
+.detail.show { display: flex; }
+.detail-head { display: flex; align-items: center; gap: 10px; }
+.detail-head .icon { color: var(--disc-hue); cursor: pointer; }
+.detail-hero { height: 92px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--disc-hue) 16%, transparent); color: var(--disc-hue); }
+.voice-overlay { position: absolute; inset: 0; z-index: 24; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 12px; border-radius: 50%; background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 20%, transparent), color-mix(in srgb, var(--panel) 88%, transparent) 62%, transparent 78%); }
+.voice-overlay.show { display: flex; }
+.wave { display: flex; gap: 4px; height: 34px; align-items: center; }
+.wave i { width: 3px; background: var(--accent); border-radius: 2px; animation: wv 780ms ease-in-out infinite; }
+.wave i:nth-child(1){animation-delay:0ms}.wave i:nth-child(2){animation-delay:80ms}.wave i:nth-child(3){animation-delay:160ms}.wave i:nth-child(4){animation-delay:240ms}.wave i:nth-child(5){animation-delay:320ms}.wave i:nth-child(6){animation-delay:400ms}.wave i:nth-child(7){animation-delay:480ms}
+@keyframes wv { 0%,100%{height:6px} 50%{height:30px} }
+.ghost { position: absolute; left: 0; right: 0; top: 92px; z-index: 6; display: none; flex-direction: column; gap: 7px; padding: 0 4px; }
+.ghost.show { display: flex; }
+.ghost i { height: 11px; border-radius: 6px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), color-mix(in srgb, var(--accent) 26%, transparent), color-mix(in srgb, var(--accent) 8%, transparent)); background-size: 200% 100%; animation: shimmer 1200ms linear infinite; }
+.ghost i:nth-child(2){ width: 88%; } .ghost i:nth-child(3){ width: 66%; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.tts-bar { position: absolute; left: 172px; top: 78px; z-index: 22; background: color-mix(in srgb, var(--accent) 92%, #000); color: #17181A; padding: 5px 11px; border-radius: 6px; font-size: 10px; display: none; align-items: center; gap: 7px; }
+.tts-bar.show { display: flex; }
+
+/* 状态栏 / transport */
+.statusbar { position: absolute; left: 0; right: 0; top: 0; height: 28px; z-index: 30; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; font-size: 10px; color: var(--dim); pointer-events: none; }
+.statusbar .sb-icons { display: flex; gap: 8px; }
+.icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+.icon.sm { width: 14px; height: 14px; }
+.icon.lg { width: 24px; height: 24px; }
+.transport { position: absolute; left: 0; right: 0; bottom: 0; height: 66px; z-index: 30; display: grid; grid-template-columns: 176px 1fr 176px; align-items: center; gap: 14px; padding: 0 22px; background: linear-gradient(0deg, var(--bg), transparent); }
+.track-info { display: flex; flex-direction: column; }
+.track-info .num { font-family: "Cascadia Code", Consolas, monospace; font-size: 18px; color: var(--disc-hue); letter-spacing: 1.5px; text-shadow: 0 0 12px color-mix(in srgb, var(--disc-hue) 45%, transparent); }
+.track-info .nm { font-size: 10px; color: var(--dim); }
+.tctrl { display: flex; align-items: center; gap: 8px; justify-content: center; }
+.tbtn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel2) 88%, transparent); color: var(--text); display: grid; place-items: center; cursor: pointer; }
+.tbtn.main { width: 42px; height: 42px; border-color: var(--disc-hue); color: var(--disc-hue); }
+.ruler { display: flex; align-items: center; gap: 0; }
+.ruler .seg { position: relative; flex: 1; height: 2px; background: var(--line); }
+.ruler .seg::after { content: ""; position: absolute; left: 50%; top: -3px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: var(--line); transition: background 260ms, box-shadow 260ms, transform 260ms; }
+.ruler .seg.on::after { background: var(--disc-hue); transform: scale(1.4); box-shadow: 0 0 10px var(--disc-hue); }
+
+/* ===== 控制台 ===== */
+.console { display: flex; flex-direction: column; gap: 13px; }
+.panel { background: #18191D; border: 1px solid #2E2F35; border-radius: 13px; padding: 15px 17px; }
+.panel h2 { font-size: 13px; font-weight: 600; margin: 0 0 3px; color: #F0F0F2; }
+.panel .desc { margin: 0 0 11px; font-size: 11px; color: #8A8A92; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+.ctrl { background: #232429; color: #DEDEE2; border: 1px solid #393A42; border-radius: 8px; padding: 9px 10px; font-size: 11px; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 2px; }
+.ctrl:hover { background: #2D2E35; }
+.ctrl b { font-size: 12px; font-weight: 600; }
+.ctrl span { color: #8A8A92; font-size: 10px; }
+.ctrl.primary { background: #4A3B1C; border-color: #8A6A2C; color: #FCE2A8; }
+.ctrl.on { border-color: #7F77DD; color: #CECBF6; }
+.row { display: flex; align-items: center; gap: 9px; margin: 8px 0; }
+.row label { width: 92px; flex: 0 0 92px; color: #B6B6BD; font-size: 11px; }
+.row input[type=range] { flex: 1; accent-color: #E0B877; }
+.row .val { width: 52px; text-align: right; color: #D8D8DE; font-size: 11px; font-variant-numeric: tabular-nums; }
+.slot-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.slot { background: #232429; border: 1px solid #35363D; border-radius: 8px; padding: 7px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; color: #C7C7CE; font-size: 8px; text-align: center; }
+.slot .icon { width: 18px; height: 18px; }
+.log { background: #101114; border: 1px solid #2E2F35; border-radius: 9px; padding: 9px 11px; height: 118px; overflow-y: auto; font-family: Consolas, monospace; font-size: 10px; color: #AFAFB7; }
+.log div { padding: 2px 0; border-bottom: 1px solid #202126; }
+.log .k { color: #88C7AE; }
+.now { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: #B6B6BD; margin-top: 10px; }
+.now b { color: #F6C86A; font-weight: 500; }
+.hint { font-size: 10px; color: #7E7F87; margin-top: 8px; line-height: 1.7; }
+@media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+body.reduced .vinyl, body.reduced .mini-cd, body.reduced .read-dot, body.reduced .music-cover .mini-disc, body.reduced .vinyl-label,
+body.reduced .wave i, body.reduced .ghost i, body.reduced .ripples i, body.reduced .tonearm .head::after, body.reduced .comp-face .icon { animation: none !important; }
+body.reduced .scene, body.reduced .tonearm, body.reduced .disc-anchor { transition-duration: 1ms !important; }
+</style>
+</head>
+<body>
+<svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-3-6-7-2z"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4V5z"/><path d="M8 10h8M8 13h5"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4v-9z"/><path d="M10 20v-6h4v6"/></symbol>
+  <symbol id="i-tools" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2.2 2.2M16.8 16.8L19 19M19 5l-2.2 2.2M7.2 16.8L5 19"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><rect x="3" y="8" width="15" height="8" rx="1"/><path d="M18 11h2v2h-2z"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3 9c6-5 12-5 18 0M6 12c4-3 8-3 12 0M9 15c2-1.5 4-1.5 6 0"/><circle cx="12" cy="18" r=".8" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><path d="M4 18v-2M9 18v-5M14 18v-8M19 18V6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-weather" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V6l11-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 9h8M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5l11 7-11 7V5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M6 5v14M19 5L9 12l10 7V5z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M18 5v14M5 5l10 7-10 7V5z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="i-face-calm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 10h1.5M14 10h1.5M9 15h6"/></symbol>
+  <symbol id="i-face-happy" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 10h1.5M14 10h1.5M8.5 14.5c2 2.5 5 2.5 7 0"/></symbol>
+  <symbol id="i-face-fire" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M7.5 9.5l2 2 2-2M12.5 9.5l2 2 2-2M9 15.5c2 1.8 4 1.8 6 0"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-8-4.6-8-10a4.4 4.4 0 0 1 8-2.6A4.4 4.4 0 0 1 20 10c0 5.4-8 10-8 10z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 9a7 7 0 0 1 12-2l2 5M18 15a7 7 0 0 1-12 2l-2-5"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1A3.5 3.5 0 0 1 18 18z"/></symbol>
+  <symbol id="i-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/><path d="M12 3a9 9 0 0 1 6 2.2"/></symbol>
+  <symbol id="i-eject" viewBox="0 0 24 24"><path d="M12 5L4 16h16L12 5zM5 20h14"/></symbol>
+</svg>
+
+<div class="app">
+  <header>
+    <h1>WXY · UI 逻辑原型 v0.4</h1>
+    <span class="sub">换碟唱机：每张碟有独立身份 · 换应用=换碟 · 音乐联动主碟 · 角落小 CD + 碟仓 · 1024 × 600</span>
+    <span class="badge">单文件 · 无外部依赖 · 可调参迭代</span>
+  </header>
+  <div class="layout">
+    <section class="stage">
+      <div class="fit-box" id="fitbox">
+        <div class="screen-shell" id="shell">
+          <div class="screen" id="screen" data-theme="ink">
+
+            <div class="disc-world" id="world">
+              <!-- 碟片：锚点做换碟动作，内部 vinyl 自转 -->
+              <div class="disc-anchor" id="disc-anchor">
+                <div class="vinyl" id="vinyl">
+                  <div class="vinyl-label"><div class="lstack"><svg class="icon" id="disc-icon"><use href="#i-chat"/></svg><span class="lt">DISC <span id="disc-num">01</span></span><span class="ln" id="disc-name">对谈</span></div></div>
+                  <div class="read-dot" id="read-dot"></div>
+                  <div class="vinyl-hole"></div>
+                </div>
+              </div>
+              <div class="ripples" id="ripples"><i></i><i></i><i></i></div>
+              <div class="orbit" id="orbit"></div>
+              <div class="tonearm" id="tonearm"><div class="armbar"></div><div class="head"></div><div class="pivot"></div></div>
+
+              <!-- 角落小 CD + 碟仓 -->
+              <div class="mini-rack tap" id="mini-rack" title="点开碟仓换碟">
+                <div class="mini-cd"><i id="mini-icon"><svg class="icon"><use href="#i-chat"/></svg></i></div>
+                <div class="mini-rack-tx"><span class="cap">LOADED DISC</span><b id="mini-name">对谈</b><span class="num" id="mini-num">DISC 01</span></div>
+              </div>
+              <div class="tray" id="tray">
+                <div class="tray-head"><span>碟仓 · 点一张换碟</span><b id="tray-now">当前 01</b></div>
+                <div class="tray-grid" id="tray-grid"></div>
+              </div>
+
+              <div class="statusbar">
+                <span id="clock">21:00</span>
+                <span class="sb-icons">
+                  <svg class="icon sm"><use href="#i-signal"/></svg>
+                  <svg class="icon sm"><use href="#i-wifi"/></svg>
+                  <svg class="icon sm"><use href="#i-battery"/></svg>
+                </span>
+              </div>
+
+              <div class="focus-well">
+                <div class="well-glow"></div>
+                <div class="content-stack" id="stack">
+
+                  <div class="scene active" data-scene="chat">
+                    <div class="scene-head"><span class="tk">DISC 01</span><svg class="icon"><use href="#i-chat"/></svg><b>对谈</b><span class="sub2">按住说话是唯一语音入口</span></div>
+                    <div class="msg user">今天天气怎么样？</div>
+                    <div class="msg ai" id="ai-msg">帮你查到了，今晚转凉，记得加件外套。</div>
+                    <div class="card" id="weather-card"><div class="ci"><svg class="icon"><use href="#i-weather"/></svg></div><div><div class="ct">天气 · 今晚</div><div class="cs">点它 → 浮起详情（同一张唱片）</div></div></div>
+                    <div class="flex1"></div>
+                    <div class="card" id="ptt-btn"><div class="ci"><svg class="icon"><use href="#i-mic"/></svg></div><div><div class="ct">按住说话</div><div class="cs">点它 → 柔光泛层，不弹独立页</div></div></div>
+                  </div>
+
+                  <div class="scene" data-scene="home">
+                    <div class="scene-head"><span class="tk">DISC 02</span><svg class="icon"><use href="#i-home"/></svg><b>桌面</b><span class="sub2">应用 = 可换的碟</span></div>
+                    <div class="tile-grid">
+                      <div class="tile tap" data-app="timer"><svg class="icon"><use href="#i-clock"/></svg>计时</div>
+                      <div class="tile tap" data-app="weather"><svg class="icon"><use href="#i-weather"/></svg>天气</div>
+                      <div class="tile tap" data-app="music"><svg class="icon"><use href="#i-music"/></svg>音乐</div>
+                      <div class="tile tap" data-app="note"><svg class="icon"><use href="#i-note"/></svg>笔记</div>
+                      <div class="tile tap" data-app="companion"><svg class="icon"><use href="#i-heart"/></svg>陪伴</div>
+                      <div class="tile tap" id="open-tray-tile"><svg class="icon"><use href="#i-disc"/></svg>碟仓</div>
+                    </div>
+                    <div class="dim" id="mood-text" style="margin-top:auto">情绪：静 · 主题随唱片情绪切换</div>
+                  </div>
+
+                  <div class="scene" data-scene="tools">
+                    <div class="scene-head"><span class="tk">DISC 03</span><svg class="icon"><use href="#i-tools"/></svg><b>工具</b><span class="sub2">统一结果卡片</span></div>
+                    <div class="dim">所有工具结果共用一种卡片渲染，不各自画一套</div>
+                    <div class="card tap"><div class="ci"><svg class="icon"><use href="#i-clock"/></svg></div><div><div class="ct">计时器</div><div class="cs">timer.create</div></div></div>
+                    <div class="card tap"><div class="ci"><svg class="icon"><use href="#i-weather"/></svg></div><div><div class="ct">天气</div><div class="cs">weather.now</div></div></div>
+                    <div class="card tap"><div class="ci"><svg class="icon"><use href="#i-note"/></svg></div><div><div class="ct">笔记</div><div class="cs">notes.write</div></div></div>
+                  </div>
+
+                  <div class="scene" data-scene="set">
+                    <div class="scene-head"><span class="tk">DISC 04</span><svg class="icon"><use href="#i-set"/></svg><b>设置</b><span class="sub2">框架内自成一体</span></div>
+                    <div class="set-row tap" id="to-theme"><svg class="icon"><use href="#i-eye"/></svg>主题与情绪<span class="flex1"></span><svg class="icon sm"><use href="#i-next"/></svg></div>
+                    <div class="set-row tap"><svg class="icon"><use href="#i-music"/></svg>声音与提示<span class="flex1"></span><svg class="icon sm"><use href="#i-next"/></svg></div>
+                    <div class="set-row tap"><svg class="icon"><use href="#i-wifi"/></svg>网络连接<span class="flex1"></span><svg class="icon sm"><use href="#i-next"/></svg></div>
+                    <div class="set-row tap"><svg class="icon"><use href="#i-battery"/></svg>电源与休眠<span class="flex1"></span><svg class="icon sm"><use href="#i-next"/></svg></div>
+                  </div>
+
+                  <div class="scene inner" data-scene="theme">
+                    <div class="inner-disc"></div>
+                    <div class="inner-body">
+                      <div class="crumb">设置 / <b>主题与情绪</b> · 唱针向内一层，父层仍在</div>
+                      <div class="scene-head"><span class="tk">INNER 04·1</span><svg class="icon"><use href="#i-eye"/></svg><b>主题与情绪</b></div>
+                      <div class="set-row tap" data-theme-pick="ink"><svg class="icon"><use href="#i-face-calm"/></svg>静 · 墨盘<span class="flex1"></span><svg class="icon sm pick"><use href="#i-check"/></svg></div>
+                      <div class="set-row tap" data-theme-pick="pixel"><svg class="icon"><use href="#i-face-happy"/></svg>趣 · 像盘<span class="flex1"></span><svg class="icon sm pick" style="visibility:hidden"><use href="#i-check"/></svg></div>
+                      <div class="set-row tap" data-theme-pick="cyber"><svg class="icon"><use href="#i-face-fire"/></svg>燃 · 炫盘<span class="flex1"></span><svg class="icon sm pick" style="visibility:hidden"><use href="#i-check"/></svg></div>
+                      <div class="card tap" id="back-set" style="margin-top:auto"><div class="ci"><svg class="icon"><use href="#i-back"/></svg></div><div><div class="ct">退回设置</div><div class="cs">唱针退回外圈 · 子层沉入</div></div></div>
+                    </div>
+                  </div>
+
+                  <!-- 应用：换入对应碟后，内容在主碟上泛起 -->
+                  <div class="app-view" id="app-view">
+                    <div class="app-bar">
+                      <div class="back tap" id="app-back"><svg class="icon"><use href="#i-back"/></svg></div>
+                      <b id="app-title">应用</b>
+                      <span class="tag" id="app-tag">DISC · 已换入</span>
+                    </div>
+                    <div class="app-body" id="app-body">
+
+                      <div class="app-body music-view" data-app-pane="music" style="display:none">
+                        <div class="music-wrap">
+                          <div class="music-cover"><div class="mini-disc"><i></i></div></div>
+                          <div class="music-meta">
+                            <div class="music-title" id="music-title">静夜航行</div>
+                            <div class="music-artist" id="music-artist">Wander · 环境集</div>
+                            <div class="lyric" id="music-lyric"><span class="lyc on">夜色落在唱片上</span><br><span class="lyc">一圈一圈慢慢转</span><br><span class="lyc">陪你到天亮</span></div>
+                            <div class="music-prog"><div class="bar"><i id="music-bar"></i></div><div class="music-time"><span id="music-cur">00:42</span><span id="music-dur">03:20</span></div></div>
+                          </div>
+                        </div>
+                        <div class="music-ctrl">
+                          <div class="tbtn tap" id="music-prev"><svg class="icon"><use href="#i-prev"/></svg></div>
+                          <div class="tbtn main tap" id="music-toggle"><svg class="icon"><use href="#i-pause"/></svg></div>
+                          <div class="tbtn tap" id="music-next"><svg class="icon"><use href="#i-next"/></svg></div>
+                        </div>
+                      </div>
+
+                      <div class="app-body" data-app-pane="timer" style="display:none">
+                        <div class="timer-face"><div class="timer-ring" id="timer-ring"><span class="timer-val" id="timer-val">00:00.0</span></div></div>
+                        <div class="timer-ctrl">
+                          <div class="tbtn main tap sm" id="timer-toggle"><svg class="icon" style="width:14px;height:14px"><use href="#i-play"/></svg><span id="timer-toggle-tx">开始</span></div>
+                          <div class="tbtn tap sm" id="timer-reset"><svg class="icon" style="width:14px;height:14px"><use href="#i-refresh"/></svg><span>复位</span></div>
+                        </div>
+                      </div>
+
+                      <div class="app-body" data-app-pane="weather" style="display:none">
+                        <div class="weather-now">
+                          <svg class="icon"><use href="#i-weather"/></svg>
+                          <div class="weather-temp">18<sup>°</sup></div>
+                          <div class="weather-desc">多云转晴<br>体感 16° · 东北风 2 级</div>
+                        </div>
+                        <div class="weather-hours">
+                          <div class="weather-hour">现在<svg class="icon"><use href="#i-weather"/></svg><b>18°</b></div>
+                          <div class="weather-hour">21时<svg class="icon"><use href="#i-cloud"/></svg><b>17°</b></div>
+                          <div class="weather-hour">22时<svg class="icon"><use href="#i-cloud"/></svg><b>16°</b></div>
+                          <div class="weather-hour">23时<svg class="icon"><use href="#i-weather"/></svg><b>15°</b></div>
+                          <div class="weather-hour">00时<svg class="icon"><use href="#i-weather"/></svg><b>15°</b></div>
+                        </div>
+                        <div class="weather-days">
+                          <div class="weather-day"><svg class="icon"><use href="#i-weather"/></svg>明天<span class="lo">12°</span><span class="hi">21°</span></div>
+                          <div class="weather-day"><svg class="icon"><use href="#i-cloud"/></svg>后天<span class="lo">13°</span><span class="hi">23°</span></div>
+                          <div class="weather-day"><svg class="icon"><use href="#i-weather"/></svg>周四<span class="lo">14°</span><span class="hi">24°</span></div>
+                        </div>
+                      </div>
+
+                      <div class="app-body" data-app-pane="note" style="display:none">
+                        <div class="note-list" id="note-list">
+                          <div class="note-item sel" data-note="0"><span class="nt">21:04</span><b>今晚的安排</b><p>读完那章再睡，记得给绿植浇水。</p></div>
+                          <div class="note-item" data-note="1"><span class="nt">19:30</span><b>灵感 · 主题随情绪</b><p>深夜安静时切水墨，互动游戏时切赛博。</p></div>
+                          <div class="note-item" data-note="2"><span class="nt">昨天</span><b>待买清单</b><p>咖啡豆、数据线、新的唱针。</p></div>
+                        </div>
+                        <textarea class="note-edit" id="note-edit">读完那章再睡，记得给绿植浇水。</textarea>
+                      </div>
+
+                      <div class="app-body" data-app-pane="companion" style="display:none">
+                        <div class="comp-face"><svg class="icon" id="comp-icon"><use href="#i-face-calm"/></svg></div>
+                        <div class="comp-mood"><b id="comp-state">安静地陪着你</b><br><span id="comp-hint">情绪：静 · 与主题同源</span></div>
+                        <div class="comp-actions">
+                          <div class="tbtn tap sm" data-act="pet"><svg class="icon" style="width:14px;height:14px"><use href="#i-heart"/></svg><span>摸摸</span></div>
+                          <div class="tbtn tap sm" data-act="talk"><svg class="icon" style="width:14px;height:14px"><use href="#i-chat"/></svg><span>聊聊</span></div>
+                          <div class="tbtn tap sm" data-act="play"><svg class="icon" style="width:14px;height:14px"><use href="#i-play"/></svg><span>玩耍</span></div>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+
+                </div>
+
+                <div class="ghost" id="ghost"><i></i><i></i><i></i></div>
+                <div class="tts-bar" id="tts-bar"><svg class="icon sm"><use href="#i-mic"/></svg><span>正在播报：今晚转凉…</span></div>
+                <div class="detail" id="detail">
+                  <div class="detail-head"><svg class="icon" id="detail-back"><use href="#i-back"/></svg><b>天气 · 今晚详情</b></div>
+                  <div class="detail-hero"><svg class="icon lg"><use href="#i-weather"/></svg></div>
+                  <div class="msg ai">18°C，湿度 62%，东北风 2 级。体感偏凉，建议外套。</div>
+                  <div class="dim">从读碟窗浮起 · 不是另一个页面</div>
+                </div>
+                <div class="voice-overlay" id="voice">
+                  <div class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                  <div class="dim">聆听中 · 松开即发送</div>
+                  <div class="card" id="voice-close" style="width:250px"><div class="ci"><svg class="icon"><use href="#i-check"/></svg></div><div><div class="ct">结束录音</div></div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="transport">
+              <div class="track-info"><span class="num" id="track-num">DISC 01</span><span class="nm" id="track-name">01 · 对谈</span></div>
+              <div class="ruler" id="ruler"></div>
+              <div class="tctrl">
+                <div class="tbtn tap" id="btn-prev"><svg class="icon"><use href="#i-prev"/></svg></div>
+                <div class="tbtn main tap" id="btn-play"><svg class="icon"><use href="#i-pause"/></svg></div>
+                <div class="tbtn tap" id="btn-next"><svg class="icon"><use href="#i-next"/></svg></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+      <div class="now">
+        <span>当前轨道 <b id="cur-scene">chat</b></span>
+        <span>当前动作 <b id="cur-trans">—</b></span>
+        <span>层级 <b id="cur-depth">外圈</b></span>
+        <span>主题 <b id="cur-theme">ink</b></span>
+        <span>碟 <b id="cur-disc">01 对谈</b></span>
+      </div>
+    </section>
+
+    <aside class="console">
+      <section class="panel">
+        <h2>1 · 唱片动作实验室</h2>
+        <p class="desc">换碟是主动作：唱针抬起 → 旧碟旋出 → 新碟旋入 → 唱针落下，内容同时泛起。</p>
+        <div class="grid">
+          <button class="ctrl primary" data-trans="swap"><b>◎ 换一张碟</b><span>完整换碟动作（主角）</span></button>
+          <button class="ctrl" data-trans="tray"><b>▦ 打开碟仓</b><span>角落小 CD 唤出换碟盘</span></button>
+          <button class="ctrl" data-trans="seek"><b>滑针换轨</b><span>唱针弧线滑到相邻轨道</span></button>
+          <button class="ctrl" data-trans="descend"><b>向内深入</b><span>框架内子层，父层虚化保留</span></button>
+          <button class="ctrl" data-trans="return"><b>退回外圈</b><span>子层沉入，父层复清晰</span></button>
+          <button class="ctrl" data-trans="surface"><b>浮起详情</b><span>内容浮出唱片表面</span></button>
+          <button class="ctrl" data-trans="overlay"><b>柔光泛层</b><span>语音输入，不弹独立页</span></button>
+          <button class="ctrl" data-trans="ripple"><b>呼吸读纹</b><span>涟漪 + 流式占位</span></button>
+        </div>
+        <div style="margin-top:9px"><button class="ctrl primary" id="run-flow"><b>▶ 运行完整流程</b><span>换碟 → 录音 → 读纹 → 音乐联动 → 换轨 → 深入 → 归位</span></button></div>
+      </section>
+
+      <section class="panel">
+        <h2>2 · 融合动效参数（实时可调）</h2>
+        <p class="desc">调"换碟时长""泛起模糊""唱针行程"找柔和的换碟手感。</p>
+        <div class="row"><label>换碟时长</label><input type="range" id="p-swap" min="220" max="1000" step="20" value="520"><span class="val" id="v-swap">520ms</span></div>
+        <div class="row"><label>泛起时长</label><input type="range" id="p-enter" min="200" max="900" step="10" value="560"><span class="val" id="v-enter">560ms</span></div>
+        <div class="row"><label>沉入时长</label><input type="range" id="p-exit" min="120" max="520" step="10" value="340"><span class="val" id="v-exit">340ms</span></div>
+        <div class="row"><label>唱针行程</label><input type="range" id="p-arm" min="240" max="1100" step="20" value="620"><span class="val" id="v-arm">620ms</span></div>
+        <div class="row"><label>泛起模糊</label><input type="range" id="p-blur" min="0" max="20" step="1" value="9"><span class="val" id="v-blur">9px</span></div>
+        <div class="row"><label>唱片转速</label><input type="range" id="p-spin" min="6" max="40" step="1" value="14"><span class="val" id="v-spin">14s</span></div>
+        <div class="row"><label>读纹时长</label><input type="range" id="p-ghost" min="400" max="2400" step="100" value="1200"><span class="val" id="v-ghost">1200ms</span></div>
+        <div class="grid three" style="margin-top:8px">
+          <button class="ctrl on" id="t-haptic"><b>触觉 开</b><span>短震 20–40ms</span></button>
+          <button class="ctrl on" id="t-sound"><b>听觉 开</b><span>轻音 30ms</span></button>
+          <button class="ctrl" id="t-reduced"><b>减弱动效 关</b><span>无障碍降级</span></button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>3 · 应用模拟（换碟进入）</h2>
+        <p class="desc">每个应用=一张独立碟：碟面配色/标签/编号不同，角落小 CD 同步显示。返回=换回母碟。</p>
+        <div class="grid" id="app-launch">
+          <button class="ctrl" data-launch="music"><b>♫ 音乐播放器</b><span>换碟后主碟随播放转动</span></button>
+          <button class="ctrl" data-launch="timer"><b>◷ 计时器</b><span>秒表实时跳动</span></button>
+          <button class="ctrl" data-launch="weather"><b>☼ 天气</b><span>逐小时 / 多日预报</span></button>
+          <button class="ctrl" data-launch="note"><b>▤ 笔记</b><span>列表 / 选中 / 编辑</span></button>
+          <button class="ctrl" data-launch="companion"><b>♡ 陪伴</b><span>情绪表情 / 互动</span></button>
+          <button class="ctrl" id="app-return"><b>← 换回母碟</b><span>应用沉入，母碟旋回</span></button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>4 · 图标槽位清单</h2>
+        <p class="desc">内联 SVG 真资源 · currentColor 染色 · 换主题只换令牌，不换图形。</p>
+        <div class="slot-grid" id="slot-grid"></div>
+      </section>
+
+      <section class="panel">
+        <h2>5 · 事件日志</h2>
+        <div class="log" id="log"></div>
+        <div class="hint">看日志确认：换碟只改变"碟片身份/唱针/泛起"，从不触发"页面创建/销毁"。</div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var screen = $("screen"), world = $("world"), logEl = $("log"), anchor = $("disc-anchor"), tonearm = $("tonearm");
+
+  /* 每张碟一个身份：编号 / 名称 / 图标 / 碟面主色 */
+  var DISC = {
+    chat:      { num:"01",  name:"对谈", icon:"i-chat",    hue:"#E0B877" },
+    home:      { num:"02",  name:"桌面", icon:"i-home",    hue:"#8FC7AA" },
+    tools:     { num:"03",  name:"工具", icon:"i-tools",   hue:"#9BD465" },
+    set:       { num:"04",  name:"设置", icon:"i-set",     hue:"#7FA6D8" },
+    theme:     { num:"04a", name:"主题", icon:"i-eye",     hue:"#CECBF6" },
+    music:     { num:"M1",  name:"音乐", icon:"i-music",   hue:"#F6C86A" },
+    timer:     { num:"T1",  name:"计时", icon:"i-clock",   hue:"#7FA6D8" },
+    weather:   { num:"W1",  name:"天气", icon:"i-weather", hue:"#EFAF34" },
+    note:      { num:"N1",  name:"笔记", icon:"i-note",    hue:"#CECBF6" },
+    companion: { num:"C1",  name:"陪伴", icon:"i-heart",   hue:"#E2758F" }
+  };
+  var TRACKS = ["chat","home","tools","set","theme"];
+  var APPS = ["music","timer","weather","note","companion"];
+  var ARM = { chat:-2, home:-20, tools:-42, set:-51, theme:-50, music:-12, timer:-26, weather:-34, note:-42, companion:-16 };
+  var CENTER = { x:280, y:280 }, ORBIT_R = 252;
+
+  var current = "chat", parentScene = "set", depth = "outer", discId = "chat";
+  var appOpen = false, appParent = "home", appId = null, noteSel = 0, trayOpen = false;
+  var musicPlaying = true, musicSec = 42, musicIdx = 0, musicTimer = null;
+  var timerRunning = false, timerMs = 0, timerTimer = null;
+  var hapticOn = true, soundOn = true, reduced = false, playing = true, busy = false, flowRunning = false, audioCtx = null;
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function EN() { return reduced ? 12 : Number($("p-enter").value); }
+  function EX() { return reduced ? 12 : Number($("p-exit").value); }
+  function SW() { return reduced ? 12 : Number($("p-swap").value); }
+  function idx(id) { var i = TRACKS.indexOf(id); return i < 0 ? 0 : i; }
+  function scene(id) { return document.querySelector('[data-scene="' + id + '"]'); }
+  function label(s) { $("cur-trans").textContent = s; }
+  function log(msg, color) {
+    var d = document.createElement("div"), t = new Date();
+    var ts = ("0"+t.getHours()).slice(-2)+":"+("0"+t.getMinutes()).slice(-2)+":"+("0"+t.getSeconds()).slice(-2);
+    d.innerHTML = "<span class='k'>"+ts+"</span> "+msg;
+    if (color) d.style.color = color;
+    logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  /* 轨道点 */
+  var orbitAngles = [-62,-31,0,31,62];
+  TRACKS.forEach(function (id, i) {
+    var a = orbitAngles[i] * Math.PI / 180;
+    var dot = document.createElement("div");
+    dot.className = "orbit-dot" + (i === 0 ? " on" : "");
+    dot.setAttribute("data-orbit", id);
+    dot.style.left = (CENTER.x + ORBIT_R*Math.cos(a)) + "px";
+    dot.style.top = (CENTER.y + ORBIT_R*Math.sin(a)) + "px";
+    dot.innerHTML = '<svg class="icon"><use href="#'+DISC[id].icon+'"/></svg>';
+    dot.title = DISC[id].name;
+    dot.addEventListener("click", function () { feedback("点轨道点"); changeTo(id); });
+    $("orbit").appendChild(dot);
+    var seg = document.createElement("div");
+    seg.className = "seg" + (i === 0 ? " on" : "");
+    seg.setAttribute("data-seg", id);
+    $("ruler").appendChild(seg);
+  });
+
+  /* 碟仓 */
+  function buildTray() {
+    var all = TRACKS.concat(APPS);
+    all.forEach(function (id) {
+      var d = DISC[id], b = document.createElement("div");
+      b.className = "tray-disc tap"; b.setAttribute("data-tray", id);
+      b.style.setProperty("--dc", d.hue);
+      b.innerHTML = '<div class="tray-cd"><i><svg class="icon"><use href="#'+d.icon+'"/></svg></i></div><span>'+d.name+'</span>';
+      b.title = "换入 " + d.name + " 碟";
+      b.addEventListener("click", function () { closeTray(); changeTo(id); });
+      $("tray-grid").appendChild(b);
+    });
+  }
+  function openTray() { if (trayOpen) return; trayOpen = true; $("tray").classList.add("show"); feedback("小 CD 唤出碟仓"); log("碟仓展开：10 张碟可换（角落小 CD 是入口）"); }
+  function closeTray() { if (!trayOpen) return; trayOpen = false; $("tray").classList.remove("show"); }
+
+  function feedback(name) {
+    if (hapticOn) log("反馈 · 触觉短震 20–40ms（视觉按下 0ms 生效）");
+    if (soundOn) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = "sine"; o.frequency.value = 900;
+        g.gain.setValueAtTime(0.06, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.03);
+        o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.03);
+      } catch (e) {}
+    }
+    log("反馈 · " + name);
+  }
+
+  function setArm(id, deep) {
+    tonearm.style.setProperty("--arm", (ARM[id] || -2) + "deg");
+    tonearm.style.setProperty("--arm-x", deep ? ".82" : "1");
+  }
+  function setReading(on) { world.classList.toggle("reading", !!on); }
+  function setBreathing(on) { world.classList.toggle("breathing", !!on); }
+  function setPlay(on) {
+    playing = on; world.classList.toggle("paused", !on);
+    $("btn-play").innerHTML = '<svg class="icon"><use href="#i-' + (on ? "pause" : "play") + '"/></svg>';
+    if (appOpen && appId === "music") {
+      musicPlaying = on;
+      document.querySelector(".music-view").classList.toggle("paused", !on);
+      $("music-toggle").innerHTML = '<svg class="icon"><use href="#i-'+(on?"pause":"play")+'"/></svg>';
+      world.classList.toggle("music-on", on);
+    }
+    log("播放 → " + (on ? "主碟旋转" : "主碟停转 · 唱针抬起"));
+  }
+
+  /* 碟片身份涂装：主碟标签 + 角落小 CD + 碟仓勾当前 */
+  function paintDisc(id, nameOverride) {
+    var d = DISC[id]; if (!d) return;
+    discId = id;
+    screen.style.setProperty("--disc-hue", d.hue);
+    var nm = nameOverride || d.name;
+    $("disc-num").textContent = d.num;
+    $("disc-name").textContent = nm;
+    $("disc-icon").querySelector("use").setAttribute("href", "#" + d.icon);
+    $("mini-num").textContent = "DISC " + d.num;
+    $("mini-name").textContent = nm;
+    $("mini-icon").querySelector("use").setAttribute("href", "#" + d.icon);
+    $("tray-now").textContent = "当前 " + d.num;
+    document.querySelectorAll("[data-tray]").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-tray") === id); });
+    document.querySelectorAll("[data-orbit]").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-orbit") === id); });
+    document.querySelectorAll("[data-seg]").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-seg") === id); });
+    $("cur-disc").textContent = d.num + " " + nm;
+  }
+  function markChrome(id) {
+    var d = DISC[id];
+    $("track-num").textContent = "DISC " + d.num;
+    $("track-name").textContent = d.num + " · " + d.name;
+    $("cur-scene").textContent = id;
+  }
+  function clearScenes() { TRACKS.forEach(function (id) { scene(id).classList.remove("active","receded"); }); }
+
+  /* 换碟主动作：唱针抬起 → 旧碟旋出 → 换涂装 → 新碟旋入 → 唱针落下 */
+  async function swapDisc(id, nameOverride) {
+    tonearm.style.setProperty("--arm-lift", "17deg");
+    anchor.classList.remove("in"); anchor.classList.add("out");
+    await sleep(SW() * .62);
+    paintDisc(id, nameOverride);
+    anchor.classList.remove("out");
+    anchor.classList.add("no-anim","in"); void anchor.offsetWidth;
+    anchor.classList.remove("no-anim"); anchor.classList.remove("in");
+    tonearm.style.setProperty("--arm-lift", "0deg");
+    await sleep(SW() * .55);
+    log("换碟 → " + DISC[id].num + " " + (nameOverride || DISC[id].name) + "（唱针抬起 / 旧碟旋出 / 新碟旋入，碟未重建）", "#F6C86A");
+  }
+
+  function detailOpen() { return $("detail").classList.contains("show") || $("voice").classList.contains("show") || appOpen || depth === "inner" || trayOpen; }
+
+  async function seekTo(next) {
+    if (busy || next === current || detailOpen()) return;
+    busy = true; depth = "outer";
+    label("换碟 + 滑针 " + EN() + "ms");
+    setReading(true); clearScenes();
+    scene(current).classList.remove("active");
+    var swapping = swapDisc(next);
+    setArm(next, false); markChrome(next);
+    await sleep(Math.min(EX(), EN() * .35));
+    scene(next).classList.add("active");
+    current = next; $("cur-depth").textContent = "外圈";
+    await swapping; setReading(false);
+    log("动作 seek：碟 " + DISC[next].num + " 换入，内容原位泛起（唱片未中断）");
+    busy = false;
+  }
+
+  async function descend() {
+    if (busy || detailOpen()) return;
+    busy = true; parentScene = current;
+    label("向内深入 " + EN() + "ms");
+    setArm(current, true);
+    world.classList.add("inner-on");
+    scene(parentScene).classList.remove("active"); scene(parentScene).classList.add("receded");
+    scene("theme").classList.add("active");
+    depth = "inner"; $("cur-depth").textContent = "内圈 · 主题";
+    paintDisc("theme");
+    await sleep(EN());
+    log("动作 descend：设置 → 主题（父层虚化保留，框架未跳出）", "#CECBF6");
+    busy = false;
+  }
+  async function returnUp() {
+    if (busy || depth !== "inner") return;
+    busy = true;
+    label("退回外圈 " + EX() + "ms");
+    scene("theme").classList.remove("active");
+    await sleep(EX());
+    world.classList.remove("inner-on");
+    scene(parentScene).classList.remove("receded"); scene(parentScene).classList.add("active");
+    setArm(parentScene, false); paintDisc(parentScene);
+    depth = "outer"; $("cur-depth").textContent = "外圈";
+    log("动作 return：主题沉入，设置恢复清晰（唱针退回外圈）");
+    busy = false;
+  }
+
+  /* 打开应用 = 换入该应用的碟 */
+  async function openApp(id) {
+    if (busy || !DISC[id] || APPS.indexOf(id) < 0) return;
+    if (depth === "inner") await returnUp();
+    if (trayOpen) closeTray();
+    if (appOpen && appId === id) return;
+    busy = true;
+    var switching = appOpen;
+    if (!appOpen) {
+      appParent = current;
+      scene(current).classList.remove("active"); scene(current).classList.add("receded");
+    }
+    appOpen = true; appId = id;
+    var m = DISC[id];
+    $("app-title").textContent = m.name; $("app-tag").textContent = "DISC " + m.num + " · 已换入";
+    document.querySelectorAll("[data-app-pane]").forEach(function (p) { p.style.display = "none"; });
+    document.querySelector('[data-app-pane="'+id+'"]').style.display = "flex";
+    var av = $("app-view"); av.classList.add("show"); world.classList.add("app-on");
+    setArm(id, true); setReading(true); markChrome(id);
+    label("换碟 + 载入 " + EN() + "ms");
+    var swapping = swapDisc(id);
+    requestAnimationFrame(function () { av.classList.add("active"); });
+    $("cur-depth").textContent = "应用 · " + m.name;
+    await swapping; setReading(false);
+    if (id === "music") { musicPlaying = true; setPlay(true); startMusic(); }
+    if (id === "timer") tickTimer();
+    log("换入 " + m.num + " " + m.name + " 碟（母轨道 " + appParent + " 虚化保留，同一台唱机）", "#CECBF6");
+    busy = false;
+  }
+  async function closeApp() {
+    if (!appOpen || busy) return;
+    busy = true;
+    stopMusic(); stopTimer(); world.classList.remove("music-on");
+    label("换回母碟 " + EX() + "ms");
+    var av = $("app-view"); av.classList.remove("active");
+    await sleep(EX() * .5);
+    av.classList.remove("show"); world.classList.remove("app-on");
+    document.querySelectorAll("[data-app-pane]").forEach(function (p) { p.style.display = "none"; });
+    var back = appParent;
+    var swapping = swapDisc(back);
+    scene(back).classList.remove("receded"); scene(back).classList.add("active");
+    setArm(back, false); markChrome(back);
+    current = back; depth = "outer"; $("cur-depth").textContent = "外圈";
+    await swapping;
+    appOpen = false; appId = null;
+    log("换回母碟 " + DISC[back].num + " " + DISC[back].name + "（应用沉入，未创建新页面）");
+    busy = false;
+  }
+
+  function changeTo(id) {
+    if (busy) return;
+    if (id === "theme") { feedback("进入主题"); if (current !== "set") { seekTo("set"); setTimeout(descend, EN()+120); } else descend(); return; }
+    if (APPS.indexOf(id) >= 0) { openApp(id); return; }
+    if (appOpen) { closeApp().then(function () { seekTo(id); }); }
+    else seekTo(id);
+  }
+
+  /* 音乐：主碟联动 */
+  var SONGS = [
+    { t:"静夜航行", a:"Wander · 环境集", l:["夜色落在唱片上","一圈一圈慢慢转","陪你到天亮"], d:200 },
+    { t:"像素雨后", a:"Chiptune · 游戏集", l:["雨后的像素街","八位的月亮","亮起来"], d:168 },
+    { t:"霓虹心跳", a:"Synth · 都市集", l:["霓虹在指尖跳动","把夜晚点亮","一起跑"], d:214 }
+  ];
+  function fmtSec(s) { return ("0"+Math.floor(s/60)).slice(-2)+":"+("0"+Math.floor(s%60)).slice(-2); }
+  function paintMusic() {
+    var song = SONGS[musicIdx], prog = musicSec / song.d;
+    $("music-title").textContent = song.t; $("music-artist").textContent = song.a;
+    var lines = document.querySelectorAll("#music-lyric .lyc");
+    lines.forEach(function (el, i) { el.textContent = song.l[i]; el.classList.toggle("on", i === Math.min(2, Math.floor(prog*3))); });
+    $("music-cur").textContent = fmtSec(musicSec); $("music-dur").textContent = fmtSec(song.d);
+    $("music-bar").style.width = Math.round(prog*100) + "%";
+    /* 联动 1：唱针随进度向内读纹；联动 2：碟面读取光点角度 */
+    if (appOpen && appId === "music") {
+      tonearm.style.setProperty("--arm", (ARM.music - prog*11) + "deg");
+      $("vinyl").style.setProperty("--read-a", Math.round(prog*320) + "deg");
+      $("track-name").textContent = "M1 · " + song.t;
+      $("mini-name").textContent = song.t; $("disc-name").textContent = song.t;
+    }
+  }
+  function startMusic() {
+    stopMusic();
+    document.querySelector(".music-view").classList.toggle("paused", !musicPlaying);
+    $("music-toggle").innerHTML = '<svg class="icon"><use href="#i-'+(musicPlaying?"pause":"play")+'"/></svg>';
+    world.classList.toggle("music-on", musicPlaying);
+    paintMusic();
+    musicTimer = setInterval(function () {
+      if (!appOpen || appId !== "music" || !musicPlaying) return;
+      musicSec++;
+      if (musicSec >= SONGS[musicIdx].d) { musicSec = 0; musicIdx = (musicIdx+1)%SONGS.length; log("自动下一曲 → " + SONGS[musicIdx].t + "（碟标签同步换封面）"); }
+      paintMusic();
+    }, 1000);
+  }
+  function stopMusic() { if (musicTimer) { clearInterval(musicTimer); musicTimer = null; } world.classList.remove("music-on"); }
+
+  function paintTimer() {
+    $("timer-val").textContent = ("0"+Math.floor(timerMs/60000)).slice(-2)+":"+("0"+Math.floor(timerMs/1000)%60).slice(-2)+"."+Math.floor(timerMs/100)%10;
+    $("timer-ring").style.setProperty("--deg", (timerMs/60000*360) + "deg");
+  }
+  function tickTimer() {
+    stopTimer();
+    timerTimer = setInterval(function () {
+      if (!appOpen || appId !== "timer" || !timerRunning) return;
+      timerMs += 100; if (timerMs >= 60000) timerMs = 0; paintTimer();
+    }, 100);
+  }
+  function stopTimer() { if (timerTimer) { clearInterval(timerTimer); timerTimer = null; } timerRunning = false; }
+
+  async function surfaceDetail() {
+    if (busy) return;
+    if (current !== "chat") await seekTo("chat");
+    busy = true;
+    var d = $("detail"); d.classList.add("show");
+    label("浮起详情 " + EN() + "ms"); setReading(true);
+    d.style.transition = "transform " + EN() + "ms var(--ease-soft), opacity " + EN() + "ms var(--ease-soft)";
+    d.style.opacity = "0"; d.style.transform = "translateY(26px) scale(.9)";
+    requestAnimationFrame(function () { d.style.opacity = "1"; d.style.transform = "translateY(0) scale(1)"; });
+    await sleep(EN()); setReading(false);
+    log("动作 surface：卡片浮出唱片表面（不是换页）");
+    busy = false;
+  }
+  async function sinkDetail() {
+    var d = $("detail");
+    if (!d.classList.contains("show")) return;
+    label("沉入 " + EX() + "ms");
+    d.style.opacity = "0"; d.style.transform = "translateY(20px) scale(.92)";
+    await sleep(EX());
+    d.classList.remove("show"); d.style.opacity = ""; d.style.transform = ""; d.style.transition = "";
+    log("动作 surface：详情沉回唱片");
+  }
+  async function showVoice() {
+    if (busy) return;
+    busy = true;
+    var v = $("voice"); v.classList.add("show"); setBreathing(true);
+    label("柔光泛层 " + EN() + "ms");
+    v.style.opacity = "0"; v.style.transition = "opacity " + EN() + "ms ease";
+    requestAnimationFrame(function () { v.style.opacity = "1"; });
+    await sleep(EN());
+    log("动作 overlay：柔光从唱片中心泛开（无独立页）");
+    busy = false;
+  }
+  async function hideVoice() {
+    var v = $("voice");
+    if (!v.classList.contains("show")) return;
+    label("泛层收起 " + EX() + "ms");
+    v.style.opacity = "0";
+    await sleep(EX());
+    v.classList.remove("show"); v.style.opacity = ""; v.style.transition = ""; setBreathing(false);
+    log("动作 overlay：柔光收起");
+  }
+  async function readGhost() {
+    if (busy) return;
+    if (current !== "chat") await seekTo("chat");
+    busy = true;
+    var g = $("ghost"), old = $("ai-msg");
+    label("呼吸读纹 " + $("p-ghost").value + "ms");
+    g.classList.add("show"); setReading(true); setBreathing(true);
+    if (old) old.style.visibility = "hidden";
+    log("动作 ripple：唱纹泛涟漪 + 流式占位稳住布局");
+    await sleep(reduced ? 40 : Number($("p-ghost").value));
+    if (old) { old.textContent = "查到了：今晚 18°C，转凉，记得加件外套。"; old.style.visibility = ""; }
+    g.classList.remove("show"); setReading(false); setBreathing(false);
+    $("tts-bar").classList.add("show"); setTimeout(function () { $("tts-bar").classList.remove("show"); }, 1200);
+    log("读纹完成 → 文字填入 + TTS 条（不打断）");
+    busy = false;
+  }
+
+  function applyTheme(name) {
+    screen.setAttribute("data-theme", name); $("cur-theme").textContent = name;
+    var map = { ink:"i-face-calm", pixel:"i-face-happy", cyber:"i-face-fire" };
+    var nm = { ink:"静", pixel:"趣", cyber:"燃" };
+    $("mood-text").textContent = "情绪：" + nm[name] + " · 主题随唱片情绪切换";
+    document.querySelectorAll("[data-theme-pick]").forEach(function (b) {
+      var c = b.querySelector(".pick");
+      if (c) c.style.visibility = b.getAttribute("data-theme-pick") === name ? "visible" : "hidden";
+    });
+    log("主题 → " + name + "（只换令牌与着色，碟片与 DOM 未重建）", "#CECBF6");
+  }
+
+  function fit() {
+    var box = $("fitbox"), w = box.clientWidth, s = Math.min(1, w / 1024);
+    $("shell").style.transform = "scale(" + s + ")";
+    box.style.height = Math.round(600 * s) + "px";
+  }
+  window.addEventListener("resize", fit); fit();
+
+  var slots = ["mic","send","back","chat","home","tools","set","battery","wifi","signal","clock","weather","music","note","play","pause","prev","next","check","eye","face-calm","face-happy","face-fire","heart","refresh","stop","cloud","disc","eject"];
+  slots.forEach(function (n) {
+    var d = document.createElement("div"); d.className = "slot";
+    d.innerHTML = '<svg class="icon"><use href="#i-'+n+'"/></svg><span>'+n+'</span>';
+    $("slot-grid").appendChild(d);
+  });
+
+  /* 事件绑定 */
+  $("btn-prev").addEventListener("click", function () { var i = idx(current); changeTo(TRACKS[(i-1+TRACKS.length)%TRACKS.length]); });
+  $("btn-next").addEventListener("click", function () { var i = idx(current); changeTo(TRACKS[(i+1)%TRACKS.length]); });
+  $("btn-play").addEventListener("click", function () { setPlay(!playing); feedback("播放键"); });
+  $("weather-card").addEventListener("click", surfaceDetail);
+  $("detail-back").addEventListener("click", sinkDetail);
+  $("ptt-btn").addEventListener("click", showVoice);
+  $("voice-close").addEventListener("click", hideVoice);
+  $("to-theme").addEventListener("click", function () { feedback("进入主题"); descend(); });
+  $("back-set").addEventListener("click", function () { feedback("退回设置"); returnUp(); });
+  document.querySelectorAll("[data-theme-pick]").forEach(function (b) {
+    b.addEventListener("click", function () { applyTheme(b.getAttribute("data-theme-pick")); feedback("选主题"); });
+  });
+  document.querySelectorAll(".tile, .set-row, .card").forEach(function (el) {
+    var skip = ["weather-card","ptt-btn","voice-close","back-set","to-theme","open-tray-tile"];
+    if (skip.indexOf(el.id) < 0 && !el.hasAttribute("data-theme-pick") && !el.hasAttribute("data-app")) {
+      el.addEventListener("click", function () { feedback("控件点击"); });
+    }
+  });
+  $("mini-rack").addEventListener("click", function () { trayOpen ? closeTray() : openTray(); });
+  $("open-tray-tile").addEventListener("click", function () { openTray(); });
+  document.querySelectorAll("[data-app]").forEach(function (t) {
+    t.addEventListener("click", function () { feedback("换入应用碟"); openApp(t.getAttribute("data-app")); });
+  });
+  document.querySelectorAll("[data-launch]").forEach(function (b) {
+    b.addEventListener("click", function () { openApp(b.getAttribute("data-launch")); });
+  });
+  $("app-back").addEventListener("click", function () { feedback("换回母碟"); closeApp(); });
+  $("app-return").addEventListener("click", function () { closeApp(); });
+
+  $("music-toggle").addEventListener("click", function () { setPlay(!musicPlaying); feedback("播放/暂停"); });
+  $("music-prev").addEventListener("click", function () { musicIdx=(musicIdx-1+SONGS.length)%SONGS.length; musicSec=0; paintMusic(); feedback("上一曲"); });
+  $("music-next").addEventListener("click", function () { musicIdx=(musicIdx+1)%SONGS.length; musicSec=0; paintMusic(); feedback("下一曲"); });
+
+  $("timer-toggle").addEventListener("click", function () {
+    timerRunning = !timerRunning;
+    $("timer-toggle-tx").textContent = timerRunning ? "暂停" : "继续";
+    $("timer-toggle").querySelector("use").setAttribute("href", timerRunning ? "#i-pause" : "#i-play");
+    feedback(timerRunning ? "计时开始" : "计时暂停");
+  });
+  $("timer-reset").addEventListener("click", function () { timerRunning=false; timerMs=0; paintTimer(); $("timer-toggle-tx").textContent="开始"; $("timer-toggle").querySelector("use").setAttribute("href","#i-play"); feedback("计时复位"); });
+
+  var NOTE_TXTS = ["读完那章再睡，记得给绿植浇水。", "深夜安静时切水墨，互动游戏时切赛博。", "咖啡豆、数据线、新的唱针。"];
+  document.querySelectorAll("[data-note]").forEach(function (n) {
+    n.addEventListener("click", function () {
+      noteSel = Number(n.getAttribute("data-note"));
+      document.querySelectorAll("[data-note]").forEach(function (x) { x.classList.toggle("sel", x === n); });
+      $("note-edit").value = NOTE_TXTS[noteSel]; feedback("选中笔记");
+    });
+  });
+  $("note-edit").addEventListener("input", function () { NOTE_TXTS[noteSel] = $("note-edit").value; document.querySelectorAll("[data-note]")[noteSel].querySelector("p").textContent = $("note-edit").value; });
+
+  var COMP = {
+    pet:["i-face-happy","被摸摸了，很开心","情绪：趣 · 与你同频"],
+    talk:["i-face-calm","听着呢，慢慢说","情绪：静 · 安静陪伴"],
+    play:["i-face-fire","来玩点热闹的！","情绪：燃 · 一起撒欢"]
+  };
+  document.querySelectorAll("[data-act]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var c = COMP[b.getAttribute("data-act")];
+      $("comp-icon").querySelector("use").setAttribute("href", "#"+c[0]);
+      $("comp-state").textContent = c[1]; $("comp-hint").textContent = c[2];
+      feedback("陪伴互动 · " + b.getAttribute("data-act"));
+    });
+  });
+
+  document.querySelectorAll("[data-trans]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      if (flowRunning) return;
+      var t = b.getAttribute("data-trans");
+      if (t === "swap") { var pool = ["home","tools","chat","set"]; var nx = pool[(idx(current)+1)%pool.length]; if (appOpen) { closeApp().then(function(){ changeTo(nx); }); } else changeTo(nx); }
+      else if (t === "tray") openTray();
+      else if (t === "seek") { var n = current === "chat" ? "home" : "chat"; if (appOpen) closeApp().then(function(){ changeTo(n); }); else changeTo(n); }
+      else if (t === "descend") { if (depth !== "inner") { if (current !== "set") { changeTo("set"); setTimeout(descend, EN()+SW()+80); } else descend(); } }
+      else if (t === "return") returnUp();
+      else if (t === "surface") surfaceDetail();
+      else if (t === "overlay") showVoice();
+      else if (t === "ripple") readGhost();
+    });
+  });
+
+  function bind(id, vid, fmt, cssVar, unit) {
+    var el = $(id);
+    el.addEventListener("input", function () {
+      $(vid).textContent = fmt(el.value);
+      if (cssVar) document.documentElement.style.setProperty(cssVar, el.value + (unit || ""));
+    });
+  }
+  bind("p-swap","v-swap",function(v){return v+"ms";},"--t-swap","ms");
+  bind("p-enter","v-enter",function(v){return v+"ms";});
+  bind("p-exit","v-exit",function(v){return v+"ms";});
+  bind("p-arm","v-arm",function(v){return v+"ms";},"--t-arm","ms");
+  bind("p-blur","v-blur",function(v){return v+"px";},"--fz-blur","");
+  bind("p-spin","v-spin",function(v){return v+"s";},"--t-spin","s");
+  bind("p-ghost","v-ghost",function(v){return v+"ms";});
+  function toggle(id, on, off, cb) {
+    $(id).addEventListener("click", function () {
+      var v = $(id).classList.toggle("on");
+      $(id).querySelector("b").textContent = v ? on : off; cb(v);
+    });
+  }
+  toggle("t-haptic","触觉 开","触觉 关",function(v){hapticOn=v;log("触觉 "+(v?"开":"关"));});
+  toggle("t-sound","听觉 开","听觉 关",function(v){soundOn=v;log("听觉 "+(v?"开":"关"));});
+  toggle("t-reduced","减弱动效 开","减弱动效 关",function(v){reduced=v;document.body.classList.toggle("reduced",v);log("减弱动效 "+(v?"开":"关"));});
+
+  $("run-flow").addEventListener("click", async function () {
+    if (flowRunning) return; flowRunning = true;
+    log("=== 完整流程开始 ===", "#F6C86A");
+    try {
+      if (appOpen) await closeApp();
+      if (depth === "inner") await returnUp();
+      if ($("detail").classList.contains("show")) await sinkDetail();
+      if ($("voice").classList.contains("show")) await hideVoice();
+      closeTray();
+      if (current !== "chat") await changeToSafe("chat");
+      setPlay(true);
+      await showVoice(); await sleep(400); await hideVoice();
+      await readGhost(); await sleep(160);
+      await surfaceDetail(); await sleep(400); await sinkDetail();
+      await changeToSafe("home"); await sleep(160); applyTheme("pixel"); await sleep(160);
+      /* 换碟重点：换入音乐碟 → 播放在线联动 → 暂停停转 → 换回母碟 */
+      await openApp("music"); await sleep(500);
+      $("music-next").click(); await sleep(300);
+      setPlay(false); await sleep(220); setPlay(true); await sleep(220);
+      await closeApp(); await sleep(140);
+      await changeToSafe("set"); await sleep(140);
+      await descend(); await sleep(300); await returnUp();
+      await changeToSafe("chat");
+      log("=== 完整流程结束：全程同一台唱机，碟随应用换 ===", "#F6C86A");
+    } catch (e) { log("流程异常：" + e.message, "#F09595"); }
+    flowRunning = false;
+  });
+  function changeToSafe(id) { return new Promise(function (res) { changeTo(id); var n=0, t=setInterval(function(){ if(!busy||n>120){clearInterval(t);res();} n++; },50); }); }
+
+  setInterval(function () {
+    var d = new Date();
+    $("clock").textContent = ("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2);
+  }, 10000);
+
+  buildTray(); setPlay(true); paintDisc("chat"); markChrome("chat"); setArm("chat", false); paintMusic(); paintTimer();
+  log("原型 v0.4 就绪：1024×600 · 换碟唱机 · 10 张身份碟 · 角落小 CD + 碟仓 · 音乐联动 · 29 图标槽位");
+})();
+</script>
+</body>
+</html>

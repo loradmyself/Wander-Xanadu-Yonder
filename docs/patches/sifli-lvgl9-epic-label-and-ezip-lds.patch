@@ -1,0 +1,27 @@
+diff --git a/drivers/cmsis/sf32lb57x/Templates/gcc/hcpu/link.lds b/drivers/cmsis/sf32lb57x/Templates/gcc/hcpu/link.lds
+index b0e808a5a..3181fbe2f 100644
+--- a/drivers/cmsis/sf32lb57x/Templates/gcc/hcpu/link.lds
++++ b/drivers/cmsis/sf32lb57x/Templates/gcc/hcpu/link.lds
+@@ -344,6 +344,9 @@ SECTIONS
+     __nand_cfg_db_end__ = .;
+ 
+     KEEP(*(.eh_frame*))
++    /* WXY: ezip 图片资源（ezip.exe -lvgl_version 9 生成），放主镜像保证单 bin */
++    *(.ROM3_IMG_EZIP*)
++    . = ALIGN(4);
+     _etext = ABSOLUTE(.);
+ #endif
+   } > ROM
+diff --git a/middleware/lvgl/lv_drivers_v9/sifli/lv_draw_epic.c b/middleware/lvgl/lv_drivers_v9/sifli/lv_draw_epic.c
+index 029e53409..e537f4af7 100644
+--- a/middleware/lvgl/lv_drivers_v9/sifli/lv_draw_epic.c
++++ b/middleware/lvgl/lv_drivers_v9/sifli/lv_draw_epic.c
+@@ -212,6 +212,8 @@ static int32_t evaluate(lv_draw_unit_t *draw_unit, lv_draw_task_t *t)
+ #ifdef EPIC_SUPPORT_A8
+     case LV_DRAW_TASK_TYPE_LABEL:
+     {
++        /* WXY: EPIC 画 Montserrat A4/A8 字形遮罩错乱（上板实测），文字回落 SW */
++        return 0;
+         const lv_draw_label_dsc_t *label_dsc = (const lv_draw_label_dsc_t *)t->draw_dsc;
+         
+         #if LV_USE_FREETYPE && LV_USE_VECTOR_GRAPHIC && LV_USE_THORVG

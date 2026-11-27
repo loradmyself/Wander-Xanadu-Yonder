@@ -25,16 +25,43 @@ set_env.bat
 在 **`project/`** 目录执行（不是在仓库根）：
 
 ```bash
-scons --board=Wander-Xanadu-Yonder -j8
+scons --board=Wander-Xanadu-Yonder --board_search_path=F:/Wander-Xanadu-Yonder/boards -j8
+```
+
+用 Git Bash 手敲命令时，四个环境变量缺一不可（`set_env.bat` 里做的就是这些）：
+
+```bash
+export SIFLI_SDK=F:/Wander-Xanadu-Yonder/SiFli-SDK
+export RTT_CC=gcc                                        # 缺了它 GetLinkScript 返回 None，bootloader 链接脚本报 TypeError
+export RTT_EXEC_PATH=C:/Users/YBL/.sifli/tools/arm-none-eabi-gcc/14.2.1/bin
+# 关键：PATH 里必须用 /c/... 形式。写成 C:/... 会被 MSYS 转义成 "C;F:\..." 这种垃圾串，
+# 结果是裸名命令 arm-none-eabi-gcc 解析不到，表现为生成 link_copy.lds 时报
+# "系统找不到指定的文件"（其实 gcc 根本没被找到）。RTT_EXEC_PATH 本身两种写法都行。
+export PATH="/c/Users/YBL/.sifli/tools/arm-none-eabi-gcc/14.2.1/bin:$PATH"
+export PYTHONPATH="$SIFLI_SDK/tools/build;$SIFLI_SDK/tools/build/default"   # 分隔符是分号，冒号 Windows Python 不认
+```
+
+先自检一句，能打出版本号再编译，省得排查半天：
+
+```bash
+arm-none-eabi-gcc -dumpversion && scons --version | head -1
 ```
 
 产物：
 
 ```
-project/build_Wander-Xanadu-Yonder_hcpu/bf0_ap.bin     ← 主固件
-project/build_Wander-Xanadu-Yonder_hcpu/bootloader/    ← 二级引导
-project/build_Wander-Xanadu-Yonder_hcpu/acpu/acpu.bin  ← ACPU 固件
+project/build_Wander-Xanadu-Yonder_hcpu/main.bin        ← 主固件（烧这个）
+project/build_Wander-Xanadu-Yonder_hcpu/main.elf
+project/build_Wander-Xanadu-Yonder_hcpu/bootloader/     ← 二级引导
+project/build_Wander-Xanadu-Yonder_hcpu/acpu/acpu.bin   ← ACPU 固件
+project/build_Wander-Xanadu-Yonder_hcpu/download.bat    ← 一键下载脚本
 ```
+
+当前固件包含三层：`src/main.c`（banner + 心跳）、`src/services/wxy_storage.c`
+（fs_root 挂载到 `/`）、`src/ui/wxy_ui.c`（LVGL 壳：状态栏 / 三页 / 底部导航）。
+`src/ui`、`src/services` 在 `project/SConscript` 里与 `src` 平级挂载——不要在
+`src/SConscript` 内再嵌套 `SConscript`，否则报 "Source directory cannot be under
+variant directory"。
 
 VSCode 用 SiFli 插件时，打开 **`project/`** 目录作为工程根；插件会通过
 `boards/` 发现板级。若板级列表为空，在工程设置里把 board search path 指到
@@ -87,5 +114,8 @@ CONFIG_WXY_COMPUTE_ACPU=y    # 编 ACPU 子工程（默认开）
 | `Please run set_env.bat` | 没设 `SIFLI_SDK` | 运行 `SiFli-SDK/set_env.bat`，或在当前 shell `set SIFLI_SDK=...` |
 | 找不到板级 | 在仓库根执行了 scons | 必须进 `project/` 再执行 |
 | `DFU_EXEC_START_ADDR` 未定义 | 打开了 `CONFIG_WXY_TF_DFU` 但分区表没补 | 先关掉开关，或补 ptab 分区 |
+| `Generating ... link_copy.lds ... 系统找不到指定的文件` | PATH 里的工具链路径被 MSYS 转坏了，`arm-none-eabi-gcc` 裸名解析不到（SDK 里 `rtconfig.CC` 就是裸名，靠 PATH 找） | 按上文用 `/c/...` 形式重设 PATH，先 `arm-none-eabi-gcc -dumpversion` 自检 |
+| `ModuleNotFoundError: No module named 'building'` | `PYTHONPATH` 用了冒号分隔，Windows Python 只认分号 | 改成 `tools/build;tools/build/default` |
+| 日志里出现 `reg.exe` 被安全策略拦截 | SDK 探测 Keil/IAR 注册表项，被沙箱拦截 | 环境噪音，不影响 gcc 工具链的编译链接，忽略即可 |
 | 链接缺 `lcpu_img` 符号 | 打开了 `BSP_USING_LCPU_PATCH` | 保持关闭，等补 `src/lcpu_img.c` |
 | 头文件路径过期 | 误用了参考工程的 `rtua.py` | 删除 `project/rtua.py`，让它重新生成 |

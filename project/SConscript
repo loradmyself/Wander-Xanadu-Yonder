@@ -16,4 +16,8 @@ objs.extend(SConscript(os.path.join(SIFLI_SDK, 'SConscript'), variant_dir="sifli
 # on-screen milestone. Empty directories here would break the build.
 objs.extend(SConscript(cwd + '/../src/SConscript', variant_dir="src", duplicate=0))
 
+# 平台子模块：与 src 平级挂载，避免嵌套 variant_dir。
+objs.extend(SConscript(cwd + '/../src/ui/SConscript', variant_dir="wxy_ui", duplicate=0))
+objs.extend(SConscript(cwd + '/../src/services/SConscript', variant_dir="wxy_services", duplicate=0))
+
 Return('objs')

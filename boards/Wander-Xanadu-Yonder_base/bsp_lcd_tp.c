@@ -70,9 +70,20 @@ void BSP_LCD_PowerUp(void)
     HAL_PIN_Set(PAD_PA41, LCDC1_DPI_G6, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA42, LCDC1_DPI_G7, PIN_NOPULL, 1);
 
-    /* B channel */
-    HAL_PIN_Set(PAD_PA43, LCDC1_DPI_B0, PIN_NOPULL, 1);
-    HAL_PIN_Set(PAD_PA44, LCDC1_DPI_B1, PIN_NOPULL, 1);
+    /* B channel
+     *
+     * PA43/PA44 不参与 DPI：它们是 SWD 调试口（专用功能 SWCLK/SWDIO，FSEL=1，
+     * 不过 IO 矩阵），而 DPI 信号只是矩阵功能，可以任意落脚。这里释放 B0/B1，
+     * 屏仍按 24 位时序驱动（color_mode = RGB888），面板蓝通道拿到的是
+     * B7..B2 + SWD 固定电平，误差上限 2/255（B0/B1 在 RGB565→888 扩展里
+     * 只是 B2/B3 的重复位），肉眼不可辨。
+     *
+     * 注意：调试时 SWD 波形会调制面板 B0/B1 两个输入，暗蓝区域可能有极轻微
+     * 抖动；不接调试器时 SWCLK 下拉、SWDIO 上拉，是确定电平，无影响。
+     * 若要连摄像头（DVP 的 DI0-DI6/PCLK 正是 PA32/33/43/44/45/24/25/26），
+     * 需改走 16 位 RGB565（htm_h070a20.c 里 color_mode + 注释掉 8 根数据线）。 */
+    HAL_PIN_Set(PAD_PA43, SWCLK, PIN_PULLDOWN, 1);
+    HAL_PIN_Set(PAD_PA44, SWDIO, PIN_PULLUP, 1);
     HAL_PIN_Set(PAD_PA45, LCDC1_DPI_B2, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA52, LCDC1_DPI_B3, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA53, LCDC1_DPI_B4, PIN_NOPULL, 1);
@@ -88,7 +99,7 @@ void BSP_LCD_PowerUp(void)
     HAL_PIN_Set(PAD_PA51, LCDC1_DPI_VSYNC, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA50, LCDC1_DPI_DE,    PIN_NOPULL, 1);
 
-    /* Backlight
+    /* Backlight   V1.0开发板同时接背光和WS2812B
      *
      * 注意：HDK 原板（dpi-hdk_lb57eybbn6_n16_dpi）的背光 PWM 在 PA11
      * (GPTIM2_CH2)，但本板的 PA11 经 R6(0R) 接的是 WS2812B 的 DIN，
@@ -99,7 +110,7 @@ void BSP_LCD_PowerUp(void)
      * 本板背光不需要软件 PWM（恒亮），所以这里不再占用 PA11；PA11 由
      * bsp_pinmux.c 的 BSP_PIN_Init() 复用为 GPTIM1_CH4 供 WS2812 使用。
      * 若换回 HDK 原板，必须恢复下面这行。 */
-    // HAL_PIN_Set(PAD_PA11, GPTIM2_CH2, PIN_NOPULL, 1);   // LCDC1_BL_PWM_CTRL, LCD backlight PWM (pwmt2 CH2)
+    HAL_PIN_Set(PAD_PA11, GPTIM2_CH2, PIN_NOPULL, 1);   // LCDC1_BL_PWM_CTRL, LCD backlight PWM (pwmt2 CH2)
 
 #elif defined(BSP_LCDC_USING_DBI)
 #elif defined(BSP_LCDC_USING_DIRECT_EPD)

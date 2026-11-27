@@ -6,15 +6,16 @@ cwd = GetCurrentDir()
 src = ['main.c']
 
 # platform/include 是唯一对外 ABI 目录，src 与 apps 都从这里取头文件。
-CPPPATH = [cwd, os.path.join(cwd, '../platform/include')]
+# src/ui、src/services 是内部模块，头文件只在仓库内使用。
+CPPPATH = [cwd,
+           os.path.join(cwd, '../platform/include'),
+           os.path.join(cwd, 'ui'),
+           os.path.join(cwd, 'services')]
 
 objs = DefineGroup('src', src, depend=[''], CPPPATH=CPPPATH)
 
-# 自动挂载子目录：新增 src/services、src/ui 时只放一个 SConscript 即可，
-# 不需要回来改这里。
-for d in sorted(os.listdir(cwd)):
-    path = os.path.join(cwd, d)
-    if os.path.isfile(os.path.join(path, 'SConscript')):
-        objs = objs + SConscript(os.path.join(d, 'SConscript'), variant_dir=d, duplicate=0)
+# 子模块（ui / services）由 project/SConscript 平级挂载。
+# 不在这里嵌套 SConscript：src 本身已是 variant_dir，再套一层会触发
+# "Source directory cannot be under variant directory"。
 
 Return('objs')

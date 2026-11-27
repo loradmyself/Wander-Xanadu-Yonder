@@ -1,0 +1,34 @@
+import os
+from building import *
+
+cwd = GetCurrentDir()
+
+# UI 分层：
+#   wxy_kit     控件/动效/主题回调的公共底座
+#   wxy_theme   主题引擎（theme.h 的实现）
+#   wxy_slots   图标槽位与渲染器（slots.h 的实现）
+#   wxy_disc    唱片身份 + 唱机（换碟动作）
+#   wxy_pages   读碟窗内容层（场景注册表）
+#   wxy_ui      编排层（导航状态机 / 泛层 / 运行时）
+src = [
+    'wxy_kit.c',
+    'wxy_theme.c',
+    'wxy_slots.c',
+    'wxy_icon_ezip.c',
+    'wxy_disc.c',
+    'wxy_pages.c',
+    'wxy_ui.c',
+]
+
+# ezip 图标资源（png2ezip 生成，段名 .ROM3_IMG_EZIP.*，链接进 ROM2 XIP 区）
+import os
+icon_dir = os.path.join(cwd, 'icons_ezip')
+if os.path.isdir(icon_dir):
+    src += Glob('icons_ezip/*.c')
+
+CPPPATH = [cwd]
+
+# 依赖 LVGL 主开关：关掉 LVGL 时整个目录自动不参与编译。
+objs = DefineGroup('wxy_ui', src, depend=['PKG_USING_LITTLEVGL2RTT'], CPPPATH=CPPPATH)
+
+Return('objs')

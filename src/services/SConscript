@@ -1,0 +1,11 @@
+import os
+from building import *
+
+cwd = GetCurrentDir()
+src = ['wxy_storage.c']
+CPPPATH = [cwd]
+
+# elm/FAT 未开时本目录不参与编译，避免链接缺符号。
+objs = DefineGroup('wxy_services', src, depend=['RT_USING_DFS_ELMFAT'], CPPPATH=CPPPATH)
+
+Return('objs')
