@@ -3,11 +3,11 @@
  *
  * ezip 图标资源注册表。
  *
- * 资源由 SDK 工具生成（png2ezip/ezip.exe，lvgl_version 9）：
- *   ezip -convert <png> -rgb565 -cfile 2 -section ROM3_IMG \
- *         -winsize 2048 -lvgl_version 9
- * 生成的 C 文件放在 icons_ezip/，段名 .ROM3_IMG_EZIP.*，链接进 ROM2 (flash2 XIP)。
+ * 资源由构建期自动生成（见 src/ui/SConscript）：
+ *   assets/icons/<name>.png --[Env.ImgResource]--> <name>.c --> extern <name>
+ * 生成物落在 build 目录，不进仓库；段名 .ROM3_IMG_EZIP.*，链接进 .text (XIP)。
  * 运行时 EPIC 硬件解压 blit（lv_draw_epic_img.c 的 EPIC_INPUT_EZIP 路径）。
+ * 注意：转换参数绝对不能加 -chip sf57x（会强制调色板、丢掉 alpha，图标透明区变黑块）。
  *
  * 槽位映射依据 slots.h 的命名契约：wxy_ic_<slot中段>_<px>.png。
  */

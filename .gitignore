@@ -12,6 +12,9 @@
 build_*/
 output/
 app-packages/
+# 构建期 eZip 转换的生成物（*/*.png -> *.tmp.c，见 src/ui/SConscript；
+# 现在产物落 build_xxx/wxy_ui/，这里保留兜底防止意外落到源码树）
+*.tmp.c
 *.o
 *.obj
 *.a

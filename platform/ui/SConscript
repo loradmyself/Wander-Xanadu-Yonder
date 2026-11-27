@@ -1,0 +1,85 @@
+import os
+from building import *
+
+cwd = GetCurrentDir()
+
+# src 目录下所有 .c 自动收集：以后加/删模块不用改本文件。
+# 排除 *.tmp.c（构建期 eZip 生成物），否则会被当源码编译导致符号重复定义。
+src = [f for f in Glob('*.c') if not str(f).endswith('.tmp.c')]
+
+CPPPATH = [cwd]
+
+# 依赖 LVGL 主开关：关掉 LVGL 时整个目录自动不参与编译。
+objs = DefineGroup('wxy_ui', src, depend=['PKG_USING_LITTLEVGL2RTT'], CPPPATH=CPPPATH)
+
+# ---------------------------------------------------------------------------
+# 构建期 eZip 资源收集器（通用，不用改本文件即可加资源）
+#
+# 扫描这三类目录下的所有 PNG，自动转 eZip C 数组：
+#   assets/ui/ezip/*.png              框架大图（背景/碟面等场景资源）
+#   assets/icons/ezip/*.png           框架图标（槽位资源，见 slots.h）
+#   apps/*/assets/ezip/*.png          各应用私有图片（参考 EPD 应用资源组织）
+# raw/ 目录不处理（不转 eZip 的原图，仅存档/预览用）。
+#
+# 资源契约：
+#   - 符号名 = PNG 文件名（去扩展名），全局唯一。
+#     应用图片必须以应用 id 为前缀（music_xxx.png / weather_xxx.png），
+#     否则跨应用撞名 → multiple definition（构建脚本会检测并报错）。
+#   - 段名 .ROM3_IMG_EZIP.*，SDK patch 已链进 .text（XIP）。
+#   - 生成物落 build_xxx/wxy_ui/，不污染源码树。
+#
+# 参数坑（血泪）：
+#   - 绝不能加 -chip sf57x：强制调色板丢 alpha，图标透明区变黑块。
+#     实测 无chip=RGBARGB565A(带alpha) / 有chip=RGBARGB_PAL(无alpha)。
+#   - -winsize 2048 必须显式写：原来 ImgResource() 会对 LB57 自动补，
+#     改用 ImgFile() 后没了；漏掉上板报 EZIP_INT_STA_WIND_ERR_STA →
+#     wait_gpu_done timeout 断言崩溃。
+# ---------------------------------------------------------------------------
+res_group = []
+if GetDepend('PKG_USING_LITTLEVGL2RTT') and GetDepend('LV_USE_EZIP'):
+    # 源树根：GetCurrentDir() 返回本 SConscript 源码目录 platform/ui。
+    # 框架资源随 UI 走，就在 platform/ui/assets/ 下。
+    root = GetCurrentDir()
+
+    def glob_png(d):
+        """glob 目录下的 PNG，跳过下划线开头的预览图。"""
+        return [f for f in Glob(os.path.join(d, '*.png'))
+                if not os.path.basename(str(f)).startswith('_')]
+
+    res_pngs = []
+    res_pngs += glob_png(os.path.join(root, 'assets', 'ui', 'ezip'))
+    res_pngs += glob_png(os.path.join(root, 'assets', 'icons', 'ezip'))
+    # 所有应用：apps/*/assets/ezip/*.png，一次通配，新应用不用改脚本。
+    for app_dir in Glob(os.path.join(root, '..', 'apps', '*')):
+        res_pngs += glob_png(os.path.join(str(app_dir), 'assets', 'ezip'))
+
+    if not res_pngs:
+        raise RuntimeError('no eZip PNG found under platform/ui/assets/*/ezip or apps/*/assets/ezip')
+
+    # 符号名冲突检测：不同目录若有同名 PNG，转换出的 C 符号会撞名。
+    seen = {}
+    for png in res_pngs:
+        name = os.path.splitext(os.path.basename(str(png)))[0]
+        if name in seen:
+            raise RuntimeError('eZip symbol conflict: %s and %s both produce "%s" (rename with app-id prefix)' %
+                               (seen[name], str(png), name))
+        seen[name] = str(png)
+
+    flags = '-rgb565 -lvgl_version 9 -cfile 2 -winsize 2048 -section ROM3_IMG'
+
+    # 显式相对 target → SCons variant_dir 映射到 build_xxx/wxy_ui/。
+    # 不用 Env.ImgResource()：它从 source 推导 target，产物会落 assets/ 源码树。
+    res_objs = []
+    for png in res_pngs:
+        name = os.path.splitext(os.path.basename(str(png)))[0]
+        res_objs.extend(Env.ImgFile(name + '.tmp.c', png, FLAGS=flags))
+
+    # flags 变化时强制重转（否则改了参数 SCons 仍用旧生成物，坑过一次）
+    Env.Depends(res_objs, Env.Value(flags))
+    res_group = DefineGroup('wxy_ui_res', res_objs,
+                            depend=['PKG_USING_LITTLEVGL2RTT', 'LV_USE_EZIP'],
+                            CPPPATH=CPPPATH)
+
+objs += res_group
+
+Return('objs')

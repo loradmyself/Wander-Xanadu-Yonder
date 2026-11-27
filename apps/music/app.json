@@ -1,0 +1,14 @@
+{
+  "abi": 1,
+  "id": "music",
+  "version": 1,
+  "data_version": 1,
+  "name": "音乐",
+  "default_locale": "zh_cn",
+  "localized_names": {
+    "zh_cn": "音乐",
+    "en_us": "Music"
+  },
+  "background": true,
+  "tools": []
+}

@@ -9,6 +9,11 @@
  *   - 时间与运行时：计时、音乐进度、读纹占位
  *   - 主题：切主题后通知页面层重画
  *
+ * 【当前状态：背景-only 验证模式】
+ *   build() 里除屏幕底层背景外的所有建壳调用已用 #if 0 注释。
+ *   屏幕上只有一整层 BG 令牌色背景，没有唱机/读碟窗/泛层/状态栏。
+ *   恢复完整 UI：把 build() 中那处 "#if 0" 改成 "#if 1"。
+ *
  * 页面层不持有导航状态，只把点击转成 wxy_ui_* 调用；
  * 于是"AI 也要能驱动界面"这件事，只要调同名 API 即可，不需要理解界面结构。
  */
@@ -23,6 +28,11 @@
 #include "wxy_disc.h"
 #include "wxy_scene.h"
 #include "wxy_ui.h"
+
+/* 构建期 eZip 生成的场景大图符号（见 src/ui/SConscript，PNG 在 assets/ui/）。
+ * 原来经 wxy_res.h 声明，该文件已精简掉，这里直接 extern。 */
+extern const lv_image_dsc_t wxy_bg_full_1024x600;
+extern const lv_image_dsc_t wxy_vinyl_field_560;
 
 #define LOG_TAG "WXY.UI"
 #define LOG_LVL LOG_LVL_INFO
@@ -771,6 +781,8 @@ static void build_overlays(void)
     wxy_reg(st, wxy_apply_text);
 }
 
+const extern lv_image_dsc_t wxy_vinyl_label_156;
+
 static void build(void)
 {
     wxy_theme_init("ink");
@@ -782,6 +794,45 @@ static void build(void)
     lv_obj_set_style_pad_all(s_scr, 0, 0);
     lv_obj_set_style_border_width(s_scr, 0, 0);
 
+    /* 整屏背景底图：构建期 eZip 生成的 wxy_bg_full_1024x600，走 EPIC 硬件解压。
+     * eZip 未编译时回退到上面的 BG 令牌纯色。用 lv_image 铺满而不是 bg_image，
+     * 因为 eZip 源是 image dsc，bg_image_src 对 RAW_ALPHA/压缩源支持不一致。 */
+    const lv_image_dsc_t *bg = &wxy_bg_full_1024x600;
+    const lv_image_dsc_t *cd = &wxy_vinyl_field_560;
+    const lv_image_dsc_t *vinyl = &wxy_vinyl_label_156;
+    if (bg != NULL)
+    {
+        lv_obj_t *bg_img = lv_image_create(s_scr);
+        lv_image_set_src(bg_img, bg);
+        lv_obj_set_pos(bg_img, 0, 0);
+        lv_obj_set_size(bg_img, WXY_SCR_W, WXY_SCR_H);
+        lv_obj_remove_flag(bg_img, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(bg_img, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *cd_img = lv_image_create(bg_img);
+        lv_image_set_src(cd_img, cd);
+        lv_obj_set_pos(cd_img, 154, 30);
+        lv_obj_remove_flag(cd_img, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(cd_img, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *vinyl_img = lv_image_create(cd_img);
+        lv_image_set_src(vinyl_img, vinyl);
+        lv_obj_set_pos(vinyl_img, 202, 202);
+        lv_obj_remove_flag(vinyl_img, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(vinyl_img, LV_OBJ_FLAG_SCROLLABLE);
+
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 背景-only 验证模式                                                   */
+    /* ------------------------------------------------------------------ */
+    /* 只保留底层背景：优先 eZip 整屏底图（回退 BG 令牌色），其余建壳元素     */
+    /* 全部用 #if 0 注释掉。需要恢复时把下面的 0 改成 1 即可。               */
+    /* 状态指针保留初始化，避免万一有 API 被调用时解引用 NULL。              */
+    s_cur = &wxy_discs[0];
+    s_track = s_cur;
+
+#if 0
     /* 1. 唱机（碟 / 唱臂 / 轨道点 / 小 CD / 走带区） */
     wxy_tt_create(s_scr);
     wxy_tt_set_pick_cb(pick_cb);
@@ -809,14 +860,13 @@ static void build(void)
     build_status_bar();
 
     /* 4. 首屏 */
-    s_cur = &wxy_discs[0];
-    s_track = s_cur;
     scene_in("chat");
     hide_except("chat");
     wxy_tt_paint(s_cur);
 
     /* 5. 运行时心跳 */
     s_timer_tick = lv_timer_create(runtime_tick, 100, NULL);
+#endif
 
     s_ready = true;
 

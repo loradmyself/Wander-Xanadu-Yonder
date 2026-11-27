@@ -1,0 +1,14 @@
+{
+  "abi": 1,
+  "id": "weather",
+  "version": 1,
+  "data_version": 1,
+  "name": "天气",
+  "default_locale": "zh_cn",
+  "localized_names": {
+    "zh_cn": "天气",
+    "en_us": "Weather"
+  },
+  "background": true,
+  "tools": []
+}

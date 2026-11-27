@@ -4,8 +4,9 @@
  * WXY 平台入口。
  *
  * 这一阶段只做三件事：打 banner、起 UI 壳、维持心跳日志。
- * 存储挂载在 src/services/wxy_storage.c（INIT_ENV_EXPORT，早于 main 执行）；
- * 具体界面在 src/ui/wxy_ui.c，后续 AI Core / .xzp 装载都挂到那套壳上。
+ * 存储挂载在 platform/services/wxy_storage.c（INIT_ENV_EXPORT，早于 main 执行）；
+ * 具体界面在 platform/ui/wxy_ui.c，后续 AI Core / .xzp 装载都挂到那套壳上。
+ * 对外 ABI 头文件统一放 platform/include/，src 与 apps 都从这里取。
  */
 
 #include <rtthread.h>

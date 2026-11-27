@@ -9,8 +9,8 @@ src = ['main.c']
 # src/ui、src/services 是内部模块，头文件只在仓库内使用。
 CPPPATH = [cwd,
            os.path.join(cwd, '../platform/include'),
-           os.path.join(cwd, 'ui'),
-           os.path.join(cwd, 'services')]
+           os.path.join(cwd, '../platform/ui'),
+           os.path.join(cwd, '../platform/services')]
 
 objs = DefineGroup('src', src, depend=[''], CPPPATH=CPPPATH)
 
