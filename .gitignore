@@ -6,7 +6,7 @@
 # 本地工作副本不入库；干净克隆后执行：
 #   git submodule update --init --depth 1
 # 注意：不要在此目录内提交任何东西，也不要把它从 .gitmodules 里删掉。
-SiFli-SDK/
+
 
 # 构建产物
 build_*/

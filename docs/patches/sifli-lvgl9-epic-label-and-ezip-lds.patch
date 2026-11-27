@@ -25,3 +25,54 @@ index 029e53409..e537f4af7 100644
          const lv_draw_label_dsc_t *label_dsc = (const lv_draw_label_dsc_t *)t->draw_dsc;
          
          #if LV_USE_FREETYPE && LV_USE_VECTOR_GRAPHIC && LV_USE_THORVG
+diff --git a/rtos/rtthread/bsp/sifli/drivers/drv_epic_single.c b/rtos/rtthread/bsp/sifli/drivers/drv_epic_single.c
+index 63772d014..6447f7e99 100644
+--- a/rtos/rtthread/bsp/sifli/drivers/drv_epic_single.c
++++ b/rtos/rtthread/bsp/sifli/drivers/drv_epic_single.c
+@@ -17,6 +17,8 @@ struct rt_semaphore epic_sema;
+ #ifdef PKG_USING_SYSTEMVIEW
+ #include "SEGGER_SYSVIEW.h"
+ #define EPIC_SYSTEMVIEW_MARK_ID 0xAAAAAAAA
++/* WXY: 等 GPU 完成信号的耗时单独打点，和 EPIC 本身的执行时间分开 */
++#define EPIC_WAIT_SYSTEMVIEW_MARK_ID 0xBBBBBBBB
+ static void SystemView_mark_start(const char *desc)
+ {
+     SEGGER_SYSVIEW_OnUserStart(EPIC_SYSTEMVIEW_MARK_ID);
+@@ -732,6 +734,11 @@ void drv_epic_single_open(EPIC_DrvTypeDef *p_drv_epic)
+ static rt_err_t wait_gpu_done(rt_int32_t time)
+ {
+     rt_err_t err;
++#ifdef PKG_USING_SYSTEMVIEW
++    rt_tick_t wait_tick = rt_tick_get();
++    SEGGER_SYSVIEW_OnUserStart(EPIC_WAIT_SYSTEMVIEW_MARK_ID);
++#endif
++
+     cont_blend_reset();
+     do
+     {
+@@ -740,6 +747,13 @@ static rt_err_t wait_gpu_done(rt_int32_t time)
+         if (RT_EOK != err)
+         {
+             LOG_E("wait_gpu_done timeout(-2)? err=%d", err);
++#ifdef PKG_USING_SYSTEMVIEW
++            /* WXY: 只有真正超时才输出；正常 take 成功后 sema=0 是预期状态 */
++            SEGGER_SYSVIEW_PrintfHost("WXY EPIC wait TIMEOUT err=%d ticks=%d sema=%d",
++                                      (int)err,
++                                      (int)(rt_tick_get() - wait_tick),
++                                      (int)epic_sema.value);
++#endif
+ #ifndef __DEBUG__
+             gpu_reset();
+             epic_abort_callback(&drv_epic.epic_handle);
+@@ -750,6 +764,11 @@ static rt_err_t wait_gpu_done(rt_int32_t time)
+     }
+     while (RT_EOK != err);
+ 
++#ifdef PKG_USING_SYSTEMVIEW
++    /* WXY: 精确耗时看这条 User Stop 的 Ran for；tick 只有 1 ms 分辨率，不再打印 */
++    SEGGER_SYSVIEW_OnUserStop(EPIC_WAIT_SYSTEMVIEW_MARK_ID);
++#endif /* PKG_USING_SYSTEMVIEW */
++
+     return err;
+ }
+ 
